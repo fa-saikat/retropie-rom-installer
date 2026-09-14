@@ -1,0 +1,32 @@
+[package]
+name = "retropie-rom-manager"
+version = "0.1.0"
+edition = "2021"
+description = "A GPUI desktop app for installing/uninstalling RetroPie ROMs"
+
+[dependencies]
+# GPUI is pre-1.0 and still evolving quickly. The crates.io releases lag
+# behind Zed's main branch, so if you hit compile errors, pin this to a git
+# rev instead:
+#   gpui = { git = "https://github.com/zed-industries/zed", rev = "<commit>" }
+gpui = "*"
+
+# Native "Open file" dialog (GTK/Qt-free, works on X11/Wayland via a portal
+# or GTK depending on what's installed). Runs the picker off the UI thread.
+rfd = "0.15"
+
+# Zip extraction, mirrors the Python prototype's stage-1 extractor.
+zip = "2"
+
+# Scratch directories for extraction, auto-cleaned on drop.
+tempfile = "3"
+
+# Home directory resolution ($HOME/RetroPie/roms).
+dirs = "5"
+
+# Ergonomic error handling across the install/uninstall pipeline.
+anyhow = "1"
+
+[[bin]]
+name = "retropie-rom-manager"
+path = "src/main.rs"
