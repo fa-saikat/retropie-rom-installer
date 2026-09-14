@@ -1,3 +1,4 @@
+mod assets;
 mod library;
 mod systems;
 mod theme;
@@ -13,6 +14,9 @@ fn main() {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // Keep the sidebar + card grid usable — below this the
+                // layout starts wrapping badly.
+                window_min_size: Some(size(px(1024.), px(768.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("ROM manager".into()),
                     ..Default::default()

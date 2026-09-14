@@ -13,6 +13,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use std::path::PathBuf;
 
+use crate::assets;
 use crate::library::{self, GameEntry};
 use crate::systems::{self, SystemDef};
 use crate::theme;
@@ -116,6 +117,9 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Solid color is always applied as the base layer — it's the
+        // fallback if no background asset is found, and it's also what
+        // shows through before/around the image (e.g. while it loads).
         div()
             .relative()
             .size_full()
@@ -123,6 +127,14 @@ impl Render for RootView {
             .flex()
             .flex_row()
             .font_family("sans-serif")
+            .when_some(assets::background_image(), |el, bg_path| {
+                el.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .child(img(bg_path).size_full().object_fit(ObjectFit::Cover)),
+                )
+            })
             .child(self.render_sidebar(cx))
             .child(self.render_main(cx))
             .when_some(self.pending_delete.clone(), |el, entry| {
@@ -134,6 +146,7 @@ impl Render for RootView {
 impl RootView {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .relative()
             .w(px(200.))
             .flex_shrink_0()
             .h_full()
@@ -141,6 +154,9 @@ impl RootView {
             .flex()
             .flex_col()
             .gap(px(2.))
+            // Sits on top of the window background image/color so sidebar
+            // text stays legible regardless of what's behind it.
+            .bg(rgba(0x0f1419cc))
             .child(
                 div()
                     .text_size(px(15.))
@@ -151,6 +167,7 @@ impl RootView {
             .children(systems::SYSTEMS.iter().map(|system| {
                 let is_selected = system.id == self.selected.id;
                 let count = self.count_for(system);
+                let icon_path = assets::system_icon(system.id, system.icon);
                 div()
                     .id(SharedString::from(system.id))
                     .flex()
@@ -160,6 +177,14 @@ impl RootView {
                     .py(px(8.))
                     .rounded(px(8.))
                     .when(is_selected, |el| el.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG)))
+                    .child(
+                        div()
+                            .size(px(18.))
+                            .flex_shrink_0()
+                            .rounded(px(4.))
+                            .when(icon_path.is_none(), |el| el.bg(rgb(system.accent)))
+                            .when_some(icon_path, |el, path| el.child(img(path).size_full())),
+                    )
                     .text_size(px(13.))
                     .text_color(rgb(if is_selected {
                         theme::TEXT_PRIMARY
@@ -182,6 +207,7 @@ impl RootView {
 
     fn render_main(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .relative()
             .flex_1()
             .h_full()
             .p(px(20.))
