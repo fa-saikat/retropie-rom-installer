@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ROM Manager
+GenericName=RetroPie ROM Manager
+Comment=Install and manage RetroPie ROMs across your emulators
+Exec=rom-manager
+Icon=rom-manager
+Terminal=false
+Categories=Game;Utility;
+StartupNotify=true

@@ -2,19 +2,31 @@
 .
 ├── Cargo.lock
 ├── Cargo.toml
+├── LICENSE
 ├── README.md
-├── assets/                     (optional, create if you want custom art)
-│   ├── background.jpg          (or background.png / bg.jpg / bg.png)
+├── scripts/
+│   ├── build-deb.sh
+│   └── generate-changelog.sh
+├── assets/
+│   ├── background.jpg
+│   ├── rom-manager.svg
 │   └── icons/
-│       ├── psx.svg              <- emulator-specific, checked first
+│       ├── psx.svg
 │       ├── arcade.svg
 │       ├── dreamcast.svg
 │       ├── gba.svg
 │       ├── megadrive.svg
 │       ├── n64.svg
 │       └── device-gamepad.svg   <- generic fallback (matches SystemDef::icon)
+├── packaging/
+│   ├── DEBIAN/
+│   │   ├── postinst
+│   │   └── postrm
+│   ├── changelog
+│   ├── copyright
+│   └── rom-manager.desktop
 └── src
-    ├── assets.rs                <- NEW: on-disk asset lookup + fallback logic
+    ├── assets.rs                <- on-disk asset lookup + fallback logic
     ├── library.rs
     ├── main.rs
     ├── systems.rs
