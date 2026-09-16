@@ -285,7 +285,7 @@ fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Stri
         return Ok(format!("copied as-is -> {}", dest.file_name().unwrap().to_string_lossy()));
     }
 
-    let tmp_dir = tempfile::Builder::new().prefix("rom-manager-").tempdir()?;
+    let tmp_dir = tempfile::Builder::new().prefix("retropie-rom-manager-").tempdir()?;
     extract_zip(src, tmp_dir.path())?;
 
     let mut moved = Vec::new();

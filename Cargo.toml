@@ -1,6 +1,6 @@
 [package]
 name = "retropie-rom-manager"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "A GPUI desktop app for installing/uninstalling RetroPie ROMs"
 
@@ -27,6 +27,39 @@ dirs = "5"
 # Ergonomic error handling across the install/uninstall pipeline.
 anyhow = "1"
 
-[[bin]]
-name = "retropie-rom-manager"
-path = "src/main.rs"
+# [[bin]]
+# name = "retropie-rom-manager"
+# path = "src/main.rs"
+
+[package.metadata.deb]
+maintainer = "Fahim A Saikat <fahimabrar.saikat@gmail.com>"
+copyright = "2026, Fahim A Saikat"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+A desktop RetroPie ROM manager for Linux. Install, browse, and uninstall \
+ROMs across six emulators (Arcade/MAME, Dreamcast, Game Boy Advance, \
+Sega Genesis/MD, PlayStation, Nintendo 64), with automatic grouping of \
+multi-file games (multi-track .cue/.bin, .gdi + tracks) into a single \
+library entry."""
+section = "utils"
+priority = "optional"
+depends = "$auto"   # dpkg-shlibdeps against the binary — GPUI's GTK/X11/
+                     # Wayland/fontconfig deps get picked up automatically,
+                     # which is the main thing that keeps installs from
+                     # breaking on a machine missing a shared library.
+maintainer-scripts = "packaging/DEBIAN"
+changelog = "packaging/changelog"
+assets = [
+    ["target/release/retropie-rom-manager", "usr/bin/", "755"],
+    ["packaging/retropie-rom-manager.desktop", "usr/share/applications/", "644"],
+    # Uncomment once a real app icon exists (see note below) —
+    ["assets/retropie-rom-manager.svg", "usr/share/icons/hicolor/256x256/apps/retropie-rom-manager.svg", "644"],
+
+    # Uncomment if you want to ship default background/system icons baked
+    # into the package. Not required: assets.rs already falls back
+    # gracefully (solid color / accent swatch) when these aren't present,
+    # so only bundle them if you've settled on defaults you want everyone
+    # to get out of the box.
+    ["assets/background.png", "usr/share/retropie-rom-manager/assets/", "644"],
+    ["assets/icons/*", "usr/share/retropie-rom-manager/assets/icons/", "644"],
+]
