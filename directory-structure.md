@@ -9,7 +9,7 @@
 │   └── generate-changelog.sh
 ├── assets/
 │   ├── background.jpg
-│   ├── rom-manager.svg
+│   ├── retropie-rom-manager.svg
 │   └── icons/
 │       ├── psx.svg
 │       ├── arcade.svg
@@ -24,7 +24,7 @@
 │   │   └── postrm
 │   ├── changelog
 │   ├── copyright
-│   └── rom-manager.desktop
+│   └── retropie-rom-manager.desktop
 └── src
     ├── assets.rs                <- on-disk asset lookup + fallback logic
     ├── library.rs

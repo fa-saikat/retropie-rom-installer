@@ -27,9 +27,9 @@ dirs = "5"
 # Ergonomic error handling across the install/uninstall pipeline.
 anyhow = "1"
 
-[[bin]]
-name = "retropie-rom-manager"
-path = "src/main.rs"
+# [[bin]]
+# name = "retropie-rom-manager"
+# path = "src/main.rs"
 
 [package.metadata.deb]
 maintainer = "Fahim A Saikat <fahimabrar.saikat@gmail.com>"
@@ -50,16 +50,16 @@ depends = "$auto"   # dpkg-shlibdeps against the binary — GPUI's GTK/X11/
 maintainer-scripts = "packaging/DEBIAN"
 changelog = "packaging/changelog"
 assets = [
-    ["target/release/rom-manager", "usr/bin/", "755"],
-    ["packaging/rom-manager.desktop", "usr/share/applications/", "644"],
+    ["target/release/retropie-rom-manager", "usr/bin/", "755"],
+    ["packaging/retropie-rom-manager.desktop", "usr/share/applications/", "644"],
     # Uncomment once a real app icon exists (see note below) —
-    ["assets/rom-manager.svg", "usr/share/icons/hicolor/256x256/apps/rom-manager.svg", "644"],
+    ["assets/retropie-rom-manager.svg", "usr/share/icons/hicolor/256x256/apps/retropie-rom-manager.svg", "644"],
 
     # Uncomment if you want to ship default background/system icons baked
     # into the package. Not required: assets.rs already falls back
     # gracefully (solid color / accent swatch) when these aren't present,
     # so only bundle them if you've settled on defaults you want everyone
     # to get out of the box.
-    ["assets/background.jpg", "usr/share/rom-manager/assets/", "644"],
-    ["assets/icons/*", "usr/share/rom-manager/assets/icons/", "644"],
+    ["assets/background.png", "usr/share/retropie-rom-manager/assets/", "644"],
+    ["assets/icons/*", "usr/share/retropie-rom-manager/assets/icons/", "644"],
 ]
