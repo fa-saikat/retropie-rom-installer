@@ -30,10 +30,17 @@ fn assets_root() -> Option<PathBuf> {
             }
         }
     }
+
     let cwd_candidate = PathBuf::from("assets");
     if cwd_candidate.is_dir() {
         return Some(cwd_candidate);
     }
+
+    let system_candidate = PathBuf::from("/usr/share/retropie-rom-manager/assets");
+    if system_candidate.is_dir() {
+        return Some(system_candidate);
+    }
+
     None
 }
 
