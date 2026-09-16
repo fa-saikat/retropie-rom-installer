@@ -1,3 +1,15 @@
+retropie-rom-manager (1.0.0-1) unstable; urgency=low
+
+  * feat: Make retropie-rom-manager 1.0.0 a reality
+  * feat: Make scripts executable for packaging
+  * feat: Make assets discovery more explicit
+  * feat: add deb packaging
+  * feat: add about button
+  * set min window size & load assets
+  * initial commit
+
+ -- FA Saikat <fahimabrar.saikat@gmail.com>  Thu, 17 Sep 2026 03:53:02 +0600
+
 rom-manager (0.1.0-1) unstable; urgency=low
 
   * Initial release.
