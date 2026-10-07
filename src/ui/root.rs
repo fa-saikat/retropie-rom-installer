@@ -363,7 +363,7 @@ impl RootView {
     fn render_card(&self, entry: GameEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let file_count = entry.files.len();
         let name_for_click = entry.clone();
-        let initial: String = entry.name.chars().next().map(|c| c.to_string()).unwrap_or_default();
+        let icon_path = assets::system_icon(self.selected.id, self.selected.icon);
         div()
             .w(px(200.))
             .bg(rgb(theme::CARD_BG))
@@ -387,9 +387,9 @@ impl RootView {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(px(theme::TEXT_HEADING))
-                            .text_color(rgb(theme::ACCENT_LIGHT))
-                            .child(initial),
+                            .when_some(icon_path, |el, path| {
+                                el.child(img(path).size(px(18.)))
+                            }),
                     )
                     .child(
                         div()
