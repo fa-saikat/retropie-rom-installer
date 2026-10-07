@@ -1,95 +1,71 @@
-# RetroPie ROM manager (GPUI)
+# RetroPie ROM Manager
 
-A desktop GUI for installing/uninstalling ROMs into a RetroPie
-`~/RetroPie/roms/<system>` tree, for 6 systems: Arcade (MAME), Dreamcast,
-Game Boy Advance, Sega Genesis/MD, PlayStation, and Nintendo 64.
+[![Latest release](https://img.shields.io/github/v/release/fa-saikat/retropie-rom-installer)](https://github.com/fa-saikat/retropie-rom-installer/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Layout
+A fast, simple desktop GUI for installing and uninstalling RetroPie ROMs on Linux — pick a system, pick your downloaded files, done. Multi-file games stay one tidy entry.
 
-```
-src/
-  main.rs      entry point, opens the window
-  systems.rs   the 6 SystemDef entries: folder, accepted extensions, icon
-  library.rs   pure filesystem logic — install, list, uninstall, grouping
-  theme.rs     color tokens (matches the approved draft)
-  ui/
-    root.rs    the whole UI: sidebar + library grid + dropzone + confirm dialog
-```
+![Populated PlayStation library](screenshots/hero-library.png)
 
-`library.rs` has no GPUI dependency and is unit tested on its own —
-`cargo test` covers the multi-file grouping logic without needing a display.
+## Features
 
-## The grouping problem
+- **Six systems out of the box** — Arcade (MAME), Dreamcast, Game Boy Advance, Sega Genesis / MD, PlayStation, Nintendo 64, each with its own icon, accent, and accepted file types.
+- **Install from downloads** — pick a ROM file in the native file picker; matching files are copied straight into `~/RetroPie/roms/<system>`, zips are extracted automatically (standard zips in-process, tricky ones via `unzip`/`7z` fallbacks).
+- **Multi-file games collapse into one entry** — a PSX game spread across a `.cue`, six track `.bin`s, and a generated `.srm` shows up once, as `Doom (USA) (Rev 1)`.
+- **Uninstall removes everything** — deleting that entry removes every file recorded for it, so no orphaned track bins or save files linger.
+- **Safe by construction** — every delete asks first, and the confirm dialog tells you exactly how many files go away.
 
-A PSX or Dreamcast "game" is often several files on disk:
+![Empty library with dropzone](screenshots/empty-state.png)
+
+## Install
+
+Download the `.deb` from the [latest release](https://github.com/fa-saikat/retropie-rom-installer/releases/latest), then:
 
 ```
-Doom (USA) (Rev 1).cue
-Doom (USA) (Rev 1).srm
-Doom (USA) (Rev 1) (Track 1).bin
-...
-Doom (USA) (Rev 1) (Track 6).bin
+sudo dpkg -i retropie-rom-manager_*_amd64.deb
+sudo apt-get install -f   # only if dpkg reports missing dependencies
 ```
 
-`list_installed_games` collapses this into one `GameEntry` by:
+Optional helpers the app will use when present: `unzip` (stubborn zips), `p7zip-full` (multi-part archives).
 
-1. Treating files whose extension is in a system's `primary_exts` (`.cue`,
-   `.gdi`, `.m3u`, ...) as **anchors** — the file that names the game.
-   Systems with no `primary_exts` (arcade, gba, megadrive, n64) treat every
-   file as its own anchor, i.e. one file = one entry.
-2. Assigning every file to the **longest** anchor stem that is a
-   "grouping-prefix" of its own stem — a prefix match where the remainder
-   starts at a clear boundary (space, `_`, `-`, `.`) rather than continuing
-   the same word. That boundary check is what stops `Doom` from swallowing
-   an unrelated `Doomsday`, and the longest-match rule is what lets
-   `Final Fantasy VII (Disc 2) (Track 1).bin` prefer the `(Disc 2)` anchor
-   over a shorter `(Disc 1)` one if both exist.
-3. `uninstall_game` deletes exactly the file list captured when the entry
-   was built — no re-scanning, so there's no window for a second game's
-   files to get swept up if the directory changes between list and delete.
+## Usage
 
-This is heuristic, not a parser of `.cue`/`.m3u` file contents, so it works
-for standard No-Intro/Redump-style naming but won't, say, tie two discs of
-the same game together unless an `.m3u` anchors them.
+1. **Pick a system** in the left sidebar — the header shows how many games are installed.
+2. **Add ROM** via the dropzone card — the accepted formats for that system are listed right on it.
+3. **Browse one entry per game**, with the file count tucked underneath as metadata.
+4. **Delete** a game with the red button — confirm once, and every file belonging to it is removed.
 
-## Extensions
+![Delete confirmation](screenshots/delete-confirm.png)
 
-Pulled from RetroPie's own system docs / `platforms.cfg`, not guessed —
-see the comments in `systems.rs` for per-system sourcing notes and the
-priority order used for multi-file anchors.
+## How multi-file grouping works
 
-## Building
+A PSX or Dreamcast "game" is often several files on disk (`Doom (USA) (Rev 1).cue` plus `(Track 1..6).bin` plus a `.srm` the emulator wrote later). The listing collapses these into one entry by treating files with anchor extensions (`.cue`, `.gdi`, `.m3u`, …) as the file that names the game, then assigning every file to the longest anchor stem that prefixes it at a clean word boundary — so `Doom` never swallows an unrelated `Doomsday`. Uninstall deletes exactly the file list captured when the entry was built, so a half-finished install elsewhere can't sweep up another game's files.
+
+This is a naming heuristic in the No-Intro/Redump style, not a parser of disc-image contents: two discs of one game merge only if an `.m3u` anchors them.
+
+## Supported systems and extensions
+
+Extensions come from RetroPie's own docs and `platforms.cfg`, not guesses:
+
+| System | Folder | Accepted files |
+|---|---|---|
+| Arcade (MAME) | `arcade` | `.zip`, `.7z` (kept zipped — MAME needs them that way) |
+| Dreamcast | `dreamcast` | `.cdi`, `.chd`, `.cue`, `.gdi`, `.zip`, `.m3u` |
+| Game Boy Advance | `gba` | `.gba`, `.zip`, `.7z` |
+| Sega Genesis / MD | `megadrive` | `.smd`, `.bin`, `.gen`, `.md`, `.zip`, `.7z` |
+| PlayStation | `psx` | `.cue`, `.bin`, `.img`, `.mdf`, `.pbp`, `.toc`, `.cbn`, `.m3u`, `.ccd`, `.chd`, `.iso` |
+| Nintendo 64 | `n64` | `.n64`, `.z64`, `.v64`, `.zip` |
+
+## Building from source
 
 ```
 cargo build --release
 ```
 
-Notes:
+The UI is built with [GPUI](https://www.gpui.rs), which is pre-1.0 and moves fast: if the build complains about element APIs, check [Zed's GPUI source](https://github.com/zed-industries/zed/tree/main/crates/gpui) or pin a git rev (commented example in `Cargo.toml`). The filesystem/grouping logic has no GPUI dependency and is covered by `cargo test` on its own.
 
-- **GPUI is pre-1.0** and its element-building API changes between Zed
-  releases faster than crates.io tags land. If `cargo build` complains
-  about missing methods on `div()`/`Context`/etc., check
-  https://github.com/zed-industries/zed/tree/main/crates/gpui for the
-  current shape and/or pin a git rev in `Cargo.toml` (commented example
-  included there). This project was written against the API as documented
-  in early 2026; I have not been able to compile it in this environment
-  (no network access here), so treat `ui/root.rs` as a strong first draft
-  to build against, not a guaranteed-green build.
-- Linux system deps: GPUI needs a working OpenGL/Vulkan stack and (per
-  Zed's docs) `libxkbcommon`, `libasound2`, `libssl`, `fontconfig`. `rfd`'s
-  native file picker uses a desktop portal on Wayland or GTK3 on X11 — if
-  neither is available it falls back to a plain Zenity/kdialog prompt.
-- 7z extraction fallback (multi-part/split archives) needs `p7zip-full`
-  installed; `unzip` fallback needs the `unzip` binary. Both are optional —
-  the `zip` crate handles the vast majority of downloads on its own.
+Linux system deps for the GUI: a working OpenGL/Vulkan stack plus `libxkbcommon`, `libasound2`, `libssl`, `fontconfig`. The native file picker uses a desktop portal on Wayland or GTK3 on X11. Debian packaging: `./scripts/build-deb.sh` (changelog via `./scripts/generate-changelog.sh` after bumping `Cargo.toml`).
 
-## Not yet wired up
+## License
 
-- OS-level drag-and-drop of a file onto the dropzone (currently it's a
-  click target that opens the native picker — functionally equivalent, just
-  not literal drag-and-drop).
-- `.m3u` multi-disc playlists aren't parsed for their member discs, so two
-  discs of one game only merge into one entry if you generate/ship an
-  `.m3u` that RetroPie itself would also use as the anchor.
-- Activity log / toast on install-uninstall (the Python prototype had a
-  persistent log pane; this draft shows the last action inline instead).
+Licensed under the MIT License — see [LICENSE](LICENSE).
