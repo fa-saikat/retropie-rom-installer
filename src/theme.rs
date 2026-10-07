@@ -16,8 +16,7 @@ pub const TEXT_MUTED: u32 = 0x5f6478;
 
 pub const ACCENT: u32 = 0x7f77dd;
 pub const ACCENT_LIGHT: u32 = 0xafa9ec;
-
-pub const DROPZONE_BORDER: u32 = 0x3a4060;
+pub const ACCENT_DARK: u32 = 0x635dac;
 
 pub const DANGER: u32 = 0xe0554f;
 pub const DANGER_BG: u32 = 0x2a1518;

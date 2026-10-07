@@ -294,36 +294,33 @@ impl RootView {
 
     fn render_dropzone(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .id("dropzone")
-            .border_1()
-            .border_color(rgb(theme::DROPZONE_BORDER))
-            .rounded(px(10.))
-            .p(px(14.))
-            .mb(px(16.))
             .flex()
             .items_center()
             .gap(px(12.))
-            .cursor_pointer()
+            .mb(px(16.))
             .child(
                 div()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .text_size(px(theme::TEXT_BODY))
-                            .text_color(rgb(theme::TEXT_PRIMARY))
-                            .child("Add a ROM"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(theme::TEXT_MICRO))
-                            .text_color(rgb(theme::TEXT_MUTED))
-                            .child(self.selected.extensions.join(" · ")),
-                    ),
+                    .id("dropzone")
+                    .px(px(20.))
+                    .py(px(10.))
+                    .rounded(px(10.))
+                    .bg(rgb(theme::ACCENT))
+                    .hover(|s| s.bg(rgb(theme::ACCENT_LIGHT)))
+                    .active(|s| s.bg(rgb(theme::ACCENT_DARK)))
+                    .cursor_pointer()
+                    .text_size(px(theme::TEXT_BODY))
+                    .text_color(rgb(0xffffff))
+                    .child("+ Add ROM")
+                    .on_click(cx.listener(|this, _event, _window, cx| {
+                        this.pick_and_install(cx);
+                    })),
             )
-            .on_click(cx.listener(|this, _event, _window, cx| {
-                this.pick_and_install(cx);
-            }))
+            .child(
+                div()
+                    .text_size(px(theme::TEXT_MICRO))
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .child(format!("Accepts {}", self.selected.extensions.join(" · "))),
+            )
     }
 
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
