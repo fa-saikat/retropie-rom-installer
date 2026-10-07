@@ -1,8 +1,9 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: rom-manager
+Upstream-Contact: Fahim A Saikat <fahimabrar.saikat@gmail.com>
 
 Files: *
-Copyright: 2026 Fahim A Saikat
+Copyright: 2026 JaduPc
 License: MIT
 
 Files: assets/icons/*.svg

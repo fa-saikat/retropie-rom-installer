@@ -533,7 +533,13 @@ impl RootView {
                 .text_size(px(theme::TEXT_MICRO))
                 .text_color(rgb(theme::TEXT_MUTED))
                 .mt(px(14.))
-                .child("Copyright © 2026 Saikat"),
+                .child("Copyright © 2026 JaduPc"),
+            )
+            .child(
+                div()
+                .text_size(px(theme::TEXT_MICRO))
+                .text_color(rgb(theme::TEXT_MUTED))
+                .child("Developed by Fahim A Saikat"),
             )
             .child(
                 div()
