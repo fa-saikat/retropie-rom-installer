@@ -450,6 +450,12 @@ impl RootView {
                 .size(px(56.))
                 .rounded(px(12.))
                 .bg(rgb(theme::ACCENT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(theme::TEXT_TITLE))
+                .text_color(rgb(0xffffff))
+                .child("R")
                 .mb(px(10.)),
             )
             .child(
@@ -486,6 +492,8 @@ impl RootView {
                 .py(px(6.))
                 .rounded(px(8.))
                 .bg(rgb(theme::ACCENT))
+                .hover(|s| s.bg(rgb(theme::ACCENT_LIGHT)))
+                .active(|s| s.bg(rgb(theme::ACCENT_DARK)))
                 .text_size(px(theme::TEXT_BODY))
                 .text_color(rgb(0xffffff))
                 .cursor_pointer()
@@ -515,17 +523,32 @@ impl RootView {
                     .p(px(20.))
                     .flex()
                     .flex_col()
-                    .gap(px(14.))
+                    .items_center()
+                    .gap(px(12.))
                     .child(
                         div()
-                            .text_size(px(theme::TEXT_BODY))
+                            .size(px(44.))
+                            .rounded_full()
+                            .bg(rgb(theme::DANGER_BG))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(theme::TEXT_TITLE))
+                            .text_color(rgb(theme::DANGER))
+                            .child("!"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::TEXT_HEADING))
                             .text_color(rgb(theme::TEXT_PRIMARY))
+                            .text_center()
                             .child(format!("Delete \"{}\"?", entry.name)),
                     )
                     .child(
                         div()
                             .text_size(px(theme::TEXT_CAPTION))
                             .text_color(rgb(theme::TEXT_SECONDARY))
+                            .text_center()
                             .child(format!(
                                 "This deletes {} file(s) from {}. This can't be undone.",
                                 entry.files.len(),
@@ -534,9 +557,11 @@ impl RootView {
                     )
                     .child(
                         div()
+                            .w_full()
                             .flex()
                             .justify_end()
                             .gap(px(10.))
+                            .mt(px(4.))
                             .child(
                                 div()
                                     .id("cancel-delete")
@@ -545,6 +570,10 @@ impl RootView {
                                     .rounded(px(8.))
                                     .border_1()
                                     .border_color(rgb(theme::CARD_BORDER))
+                                    .hover(|s| {
+                                        s.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG))
+                                    })
+                                    .active(|s| s.bg(rgb(theme::CARD_BORDER)))
                                     .text_size(px(theme::TEXT_BODY))
                                     .text_color(rgb(theme::TEXT_SECONDARY))
                                     .cursor_pointer()
@@ -560,6 +589,8 @@ impl RootView {
                                     .py(px(6.))
                                     .rounded(px(8.))
                                     .bg(rgb(theme::DANGER))
+                                    .hover(|s| s.bg(rgb(theme::DANGER_LIGHT)))
+                                    .active(|s| s.bg(rgb(theme::DANGER_DARK)))
                                     .text_size(px(theme::TEXT_BODY))
                                     .text_color(rgb(0xffffff))
                                     .cursor_pointer()

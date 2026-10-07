@@ -23,6 +23,7 @@ pub const DROPZONE_BORDER: u32 = 0x3a4060;
 pub const DANGER: u32 = 0xe0554f;
 pub const DANGER_BG: u32 = 0x2a1518;
 pub const DANGER_DARK: u32 = 0xaf423e;
+pub const DANGER_LIGHT: u32 = 0xe97a75;
 
 // Named type ramp (logical px). Every text element in the UI uses one of
 // these — no ad-hoc sizes — so the hierarchy stays consistent and a future
