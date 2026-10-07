@@ -6,6 +6,6 @@ Files: *
 Copyright: 2026 JaduPc
 License: MIT
 
-Files: assets/icons/*.svg
+Files: assets/icons/*.svg assets/retropie-rom-manager.svg
 Copyright: 2020-2026 Tabler Icons (https://tabler.io), MIT-licensed (https://github.com/tabler/tabler-icons/blob/main/LICENSE); stroke color normalized for this app's sidebar.
 License: MIT
