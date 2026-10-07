@@ -144,7 +144,8 @@ impl Render for RootView {
                     div()
                         .absolute()
                         .inset_0()
-                        .child(img(bg_path).size_full().object_fit(ObjectFit::Cover)),
+                        .child(img(bg_path).size_full().object_fit(ObjectFit::Cover))
+                        .child(div().absolute().inset_0().bg(rgba(theme::BG_SCRIM))),
                 )
             })
             .child(self.render_sidebar(cx))
@@ -160,7 +161,7 @@ impl RootView {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .relative()
-            .w(px(200.))
+            .w(px(224.))
             .flex_shrink_0()
             .h_full()
             .p(px(16.))
@@ -172,7 +173,7 @@ impl RootView {
             .bg(rgba(0x0f1419cc))
             .child(
                 div()
-                    .text_size(px(15.))
+                    .text_size(px(theme::TEXT_HEADING))
                     .text_color(rgb(theme::TEXT_PRIMARY))
                     .pb(px(16.))
                     .child("ROM manager"),
@@ -185,30 +186,44 @@ impl RootView {
                     .id(SharedString::from(system.id))
                     .flex()
                     .items_center()
-                    .gap(px(10.))
-                    .px(px(10.))
+                    .gap(px(8.))
+                    .px(px(8.))
                     .py(px(8.))
                     .rounded(px(8.))
                     .when(is_selected, |el| el.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG)))
                     .child(
                         div()
-                            .size(px(18.))
+                            .w(px(3.))
+                            .h(px(22.))
+                            .flex_shrink_0()
+                            .rounded(px(2.))
+                            .bg(rgba(0x00000000))
+                            .when(is_selected, |el| el.bg(rgb(theme::ACCENT))),
+                    )
+                    .child(
+                        div()
+                            .size(px(20.))
                             .flex_shrink_0()
                             .rounded(px(4.))
                             .when(icon_path.is_none(), |el| el.bg(rgb(system.accent)))
                             .when_some(icon_path, |el, path| el.child(img(path).size_full())),
                     )
-                    .text_size(px(13.))
+                    .text_size(px(theme::TEXT_BODY))
                     .text_color(rgb(if is_selected {
                         theme::TEXT_PRIMARY
                     } else {
                         theme::SIDEBAR_TEXT
                     }))
-                    .child(system.display_name)
+                    .child(
+                        div()
+                            .flex_1()
+                            .truncate()
+                            .child(system.display_name),
+                    )
                     .child(
                         div()
                             .ml_auto()
-                            .text_size(px(11.))
+                            .text_size(px(theme::TEXT_MICRO))
                             .text_color(rgb(theme::TEXT_MUTED))
                             .child(count.to_string()),
                     )
@@ -216,25 +231,33 @@ impl RootView {
                         this.select_system(system, cx);
                     }))
             }))
-            .child(
+            .child({
+                let icon_path = assets::system_icon("about", "info-circle");
                 div()
                 .id("about-button")
                 .mt_auto()
                 .flex()
                 .items_center()
-                .justify_center()
-                .gap(px(10.))
-                .px(px(10.))
+                .gap(px(8.))
+                .px(px(8.))
                 .py(px(8.))
                 .rounded(px(8.))
+                .hover(|s| s.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG)))
                 .cursor_pointer()
-                .text_size(px(13.))
+                .text_size(px(theme::TEXT_BODY))
                 .text_color(rgb(theme::SIDEBAR_TEXT))
+                .child(
+                    div()
+                        .size(px(20.))
+                        .flex_shrink_0()
+                        .rounded(px(4.))
+                        .when_some(icon_path, |el, path| el.child(img(path).size_full())),
+                )
                 .child("About")
                 .on_click(cx.listener(|this, _event, _window, cx| {
                     this.open_about(cx);
-                })),
-            )
+                }))
+            })
     }
 
     fn render_main(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -254,12 +277,12 @@ impl RootView {
                     .child(
                         div().flex().flex_col().child(
                             div()
-                                .text_size(px(16.))
+                                .text_size(px(theme::TEXT_TITLE))
                                 .text_color(rgb(theme::TEXT_PRIMARY))
                                 .child(self.selected.display_name),
                         ).child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(px(theme::TEXT_CAPTION))
                                 .text_color(rgb(theme::TEXT_MUTED))
                                 .child(format!("{} game(s) installed", self.games.len())),
                         ),
@@ -271,9 +294,21 @@ impl RootView {
                 el.child(
                     div()
                         .mt(px(14.))
-                        .text_size(px(12.))
-                        .text_color(rgb(theme::TEXT_SECONDARY))
-                        .child(status),
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .size(px(6.))
+                                .rounded_full()
+                                .bg(rgb(theme::ACCENT)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(theme::TEXT_CAPTION))
+                                .text_color(rgb(theme::TEXT_SECONDARY))
+                                .child(status),
+                        ),
                 )
             })
     }
@@ -281,31 +316,48 @@ impl RootView {
     fn render_dropzone(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("dropzone")
-            .border_1()
-            .border_color(rgb(theme::DROPZONE_BORDER))
-            .rounded(px(10.))
-            .p(px(14.))
+            .w_full()
+            .py(px(22.))
             .mb(px(16.))
-            .flex()
-            .items_center()
-            .gap(px(12.))
+            .rounded(px(12.))
+            .border_1()
+            .border_dashed()
+            .border_color(rgb(theme::DROPZONE_BORDER))
+            .hover(|s| {
+                s.bg(rgb(theme::CARD_BG))
+                    .border_color(rgb(theme::ACCENT))
+            })
             .cursor_pointer()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(8.))
             .child(
                 div()
+                    .size(px(40.))
+                    .rounded_full()
+                    .border_1()
+                    .border_dashed()
+                    .border_color(rgb(theme::TEXT_MUTED))
                     .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .text_color(rgb(theme::TEXT_PRIMARY))
-                            .child("Add a ROM"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(rgb(theme::TEXT_MUTED))
-                            .child(self.selected.extensions.join(" · ")),
-                    ),
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(theme::TEXT_HEADING))
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .child("+"),
+            )
+            .child(
+                div()
+                    .text_size(px(theme::TEXT_BODY))
+                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .child("Add ROM"),
+            )
+            .child(
+                div()
+                    .text_size(px(theme::TEXT_MICRO))
+                    .text_color(rgb(theme::TEXT_MUTED))
+                    .child(format!("({})", self.selected.extensions.join(", "))),
             )
             .on_click(cx.listener(|this, _event, _window, cx| {
                 this.pick_and_install(cx);
@@ -314,10 +366,40 @@ impl RootView {
 
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
         if self.games.is_empty() {
+            let icon_path = assets::system_icon(self.selected.id, self.selected.icon);
             return div()
-                .text_size(px(12.))
-                .text_color(rgb(theme::TEXT_MUTED))
-                .child("No ROMs installed for this system yet.")
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .mt(px(48.))
+                .gap(px(10.))
+                .child(
+                    div()
+                        .size(px(52.))
+                        .rounded_full()
+                        .border_1()
+                        .border_dashed()
+                        .border_color(rgb(theme::TEXT_MUTED))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when_some(icon_path, |el, path| {
+                            el.child(img(path).size(px(24.)))
+                        }),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::TEXT_BODY))
+                        .text_color(rgb(theme::TEXT_SECONDARY))
+                        .child("Nothing here yet"),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::TEXT_CAPTION))
+                        .text_color(rgb(theme::TEXT_MUTED))
+                        .child("Use Add ROM above to install your first game."),
+                )
                 .into_any_element();
         }
 
@@ -332,6 +414,7 @@ impl RootView {
     fn render_card(&self, entry: GameEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let file_count = entry.files.len();
         let name_for_click = entry.clone();
+        let icon_path = assets::system_icon(self.selected.id, self.selected.icon);
         div()
             .w(px(200.))
             .bg(rgb(theme::CARD_BG))
@@ -351,13 +434,26 @@ impl RootView {
                         div()
                             .size(px(30.))
                             .rounded(px(6.))
-                            .bg(rgb(theme::CARD_ICON_BG)),
+                            .bg(rgb(theme::CARD_ICON_BG))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when_some(icon_path, |el, path| {
+                                el.child(img(path).size(px(18.)))
+                            }),
                     )
                     .child(
                         div()
                             .id(SharedString::from(format!("delete-{}", entry.name)))
-                            .text_size(px(13.))
-                            .text_color(rgb(theme::TEXT_MUTED))
+                            .px(px(12.))
+                            .py(px(4.))
+                            .rounded(px(6.))
+                            .border_1()
+                            .border_color(rgb(theme::DANGER))
+                            .text_size(px(theme::TEXT_MICRO))
+                            .text_color(rgb(theme::DANGER))
+                            .hover(|s| s.bg(rgb(theme::DANGER_BG)))
+                            .active(|s| s.bg(rgb(theme::DANGER_DARK)))
                             .cursor_pointer()
                             .child("Delete")
                             .on_click(cx.listener(move |this, _event, _window, cx| {
@@ -367,13 +463,14 @@ impl RootView {
             )
             .child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(px(theme::TEXT_BODY))
                     .text_color(rgb(theme::TEXT_PRIMARY))
+                    .line_clamp(2)
                     .child(entry.name.clone()),
             )
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(px(theme::TEXT_MICRO))
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(format!("{file_count} file(s)")),
             )
@@ -404,33 +501,45 @@ impl RootView {
                 .size(px(56.))
                 .rounded(px(12.))
                 .bg(rgb(theme::ACCENT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(theme::TEXT_TITLE))
+                .text_color(rgb(0xffffff))
+                .child("R")
                 .mb(px(10.)),
             )
             .child(
                 div()
-                .text_size(px(15.))
+                .text_size(px(theme::TEXT_HEADING))
                 .text_color(rgb(theme::TEXT_PRIMARY))
                 .child("ROM manager"),
             )
             .child(
                 div()
-                .text_size(px(12.))
+                .text_size(px(theme::TEXT_CAPTION))
                 .text_color(rgb(theme::TEXT_MUTED))
                 .child(env!("CARGO_PKG_VERSION")),
             )
             .child(
                 div()
-                .text_size(px(12.))
+                .text_size(px(theme::TEXT_CAPTION))
                 .text_color(rgb(theme::TEXT_SECONDARY))
                 .mt(px(10.))
                 .child("A fast, simple ROM manager for RetroPie."),
             )
             .child(
                 div()
-                .text_size(px(11.))
+                .text_size(px(theme::TEXT_MICRO))
                 .text_color(rgb(theme::TEXT_MUTED))
                 .mt(px(14.))
-                .child("Copyright © 2026 Saikat"),
+                .child("Copyright © 2026 JaduPc"),
+            )
+            .child(
+                div()
+                .text_size(px(theme::TEXT_MICRO))
+                .text_color(rgb(theme::TEXT_MUTED))
+                .child("Developed by Fahim A Saikat"),
             )
             .child(
                 div()
@@ -440,7 +549,9 @@ impl RootView {
                 .py(px(6.))
                 .rounded(px(8.))
                 .bg(rgb(theme::ACCENT))
-                .text_size(px(13.))
+                .hover(|s| s.bg(rgb(theme::ACCENT_LIGHT)))
+                .active(|s| s.bg(rgb(theme::ACCENT_DARK)))
+                .text_size(px(theme::TEXT_BODY))
                 .text_color(rgb(0xffffff))
                 .cursor_pointer()
                 .child("Close")
@@ -469,17 +580,32 @@ impl RootView {
                     .p(px(20.))
                     .flex()
                     .flex_col()
-                    .gap(px(14.))
+                    .items_center()
+                    .gap(px(12.))
                     .child(
                         div()
-                            .text_size(px(14.))
+                            .size(px(44.))
+                            .rounded_full()
+                            .bg(rgb(theme::DANGER_BG))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(theme::TEXT_TITLE))
+                            .text_color(rgb(theme::DANGER))
+                            .child("!"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(theme::TEXT_HEADING))
                             .text_color(rgb(theme::TEXT_PRIMARY))
+                            .text_center()
                             .child(format!("Delete \"{}\"?", entry.name)),
                     )
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(px(theme::TEXT_CAPTION))
                             .text_color(rgb(theme::TEXT_SECONDARY))
+                            .text_center()
                             .child(format!(
                                 "This deletes {} file(s) from {}. This can't be undone.",
                                 entry.files.len(),
@@ -488,9 +614,11 @@ impl RootView {
                     )
                     .child(
                         div()
+                            .w_full()
                             .flex()
                             .justify_end()
                             .gap(px(10.))
+                            .mt(px(4.))
                             .child(
                                 div()
                                     .id("cancel-delete")
@@ -499,7 +627,11 @@ impl RootView {
                                     .rounded(px(8.))
                                     .border_1()
                                     .border_color(rgb(theme::CARD_BORDER))
-                                    .text_size(px(13.))
+                                    .hover(|s| {
+                                        s.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG))
+                                    })
+                                    .active(|s| s.bg(rgb(theme::CARD_BORDER)))
+                                    .text_size(px(theme::TEXT_BODY))
                                     .text_color(rgb(theme::TEXT_SECONDARY))
                                     .cursor_pointer()
                                     .child("Cancel")
@@ -514,7 +646,9 @@ impl RootView {
                                     .py(px(6.))
                                     .rounded(px(8.))
                                     .bg(rgb(theme::DANGER))
-                                    .text_size(px(13.))
+                                    .hover(|s| s.bg(rgb(theme::DANGER_LIGHT)))
+                                    .active(|s| s.bg(rgb(theme::DANGER_DARK)))
+                                    .text_size(px(theme::TEXT_BODY))
                                     .text_color(rgb(0xffffff))
                                     .cursor_pointer()
                                     .child("Delete")

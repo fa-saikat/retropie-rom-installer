@@ -38,7 +38,7 @@ pub struct SystemDef {
 pub const SYSTEMS: &[SystemDef] = &[
     SystemDef {
         id: "arcade",
-        display_name: " Arcade (MAME)",
+        display_name: "Arcade (MAME)",
         folder: "arcade",
         extensions: &[".zip", ".7z"],
         primary_exts: &[],
@@ -93,7 +93,7 @@ pub const SYSTEMS: &[SystemDef] = &[
         folder: "n64",
         extensions: &[".n64", ".z64", ".v64", ".zip"],
         primary_exts: &[],
-        icon: "square-rounded",
+        icon: "device-gamepad-3",
         accent: 0x00bfff,
     },
 ];

@@ -1,6 +1,11 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: rom-manager
+Upstream-Contact: Fahim A Saikat <fahimabrar.saikat@gmail.com>
 
 Files: *
-Copyright: 2026 Fahim A Saikat
+Copyright: 2026 JaduPc
+License: MIT
+
+Files: assets/icons/*.svg assets/retropie-rom-manager.svg
+Copyright: 2020-2026 Tabler Icons (https://tabler.io), MIT-licensed (https://github.com/tabler/tabler-icons/blob/main/LICENSE); stroke color normalized for this app's sidebar.
 License: MIT
