@@ -192,7 +192,16 @@ impl RootView {
                     .when(is_selected, |el| el.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG)))
                     .child(
                         div()
-                            .size(px(18.))
+                            .w(px(3.))
+                            .h(px(22.))
+                            .flex_shrink_0()
+                            .rounded(px(2.))
+                            .bg(rgba(0x00000000))
+                            .when(is_selected, |el| el.bg(rgb(theme::ACCENT))),
+                    )
+                    .child(
+                        div()
+                            .size(px(20.))
                             .flex_shrink_0()
                             .rounded(px(4.))
                             .when(icon_path.is_none(), |el| el.bg(rgb(system.accent)))

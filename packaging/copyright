@@ -4,3 +4,7 @@ Upstream-Name: rom-manager
 Files: *
 Copyright: 2026 Fahim A Saikat
 License: MIT
+
+Files: assets/icons/*.svg
+Copyright: 2020-2026 Tabler Icons (https://tabler.io), MIT-licensed (https://github.com/tabler/tabler-icons/blob/main/LICENSE); stroke color normalized for this app's sidebar.
+License: MIT
