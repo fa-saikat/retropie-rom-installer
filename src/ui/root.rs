@@ -231,25 +231,33 @@ impl RootView {
                         this.select_system(system, cx);
                     }))
             }))
-            .child(
+            .child({
+                let icon_path = assets::system_icon("about", "info-circle");
                 div()
                 .id("about-button")
                 .mt_auto()
                 .flex()
                 .items_center()
-                .justify_center()
-                .gap(px(10.))
-                .px(px(10.))
+                .gap(px(8.))
+                .px(px(8.))
                 .py(px(8.))
                 .rounded(px(8.))
+                .hover(|s| s.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG)))
                 .cursor_pointer()
                 .text_size(px(theme::TEXT_BODY))
                 .text_color(rgb(theme::SIDEBAR_TEXT))
+                .child(
+                    div()
+                        .size(px(20.))
+                        .flex_shrink_0()
+                        .rounded(px(4.))
+                        .when_some(icon_path, |el, path| el.child(img(path).size_full())),
+                )
                 .child("About")
                 .on_click(cx.listener(|this, _event, _window, cx| {
                     this.open_about(cx);
-                })),
-            )
+                }))
+            })
     }
 
     fn render_main(&self, cx: &mut Context<Self>) -> impl IntoElement {
