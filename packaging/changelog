@@ -1,3 +1,31 @@
+retropie-rom-manager (1.1.0-1) unstable; urgency=low
+
+  * feat: Make retropie-rom-manager 1.0.0 a reality
+  * Rewrite README as profile showcase (#19)
+  * Curate README screenshot set (#18)
+  * Redesign app icon around the sidebar gamepad mark
+  * Attribute copyright to JaduPc with developer credit (#15)
+  * Make About a proper sidebar row (#14)
+  * Treat background with contrast scrim (#10)
+  * Design empty state and quiet status line (#9)
+  * Restyle confirm and About dialogs (#6)
+  * Show system icon on game cards instead of initial letter (#8)
+  * Refresh game cards with actionable Delete button (#8)
+  * Rework Add-ROM as centered full-width dropzone card (#7)
+  * Make Add-ROM a real primary button (#7)
+  * Fix sidebar alignment: truncate names, widen panel, N64 icon (#5)
+  * Polish sidebar: uniform icons, clean names, clear selection (#5)
+  * Add named type ramp and apply across UI (#4)
+  * feat: Make retropie-rom-manager 1.0.0 a reality
+  * feat: Make scripts executable for packaging
+  * feat: Make assets discovery more explicit
+  * feat: add deb packaging
+  * feat: add about button
+  * set min window size & load assets
+  * initial commit
+
+ -- FA Saikat <fahimabrar.saikat@gmail.com>  Thu, 08 Oct 2026 04:36:29 +0600
+
 retropie-rom-manager (1.0.0-1) unstable; urgency=low
 
   * feat: Make retropie-rom-manager 1.0.0 a reality

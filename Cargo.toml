@@ -1,6 +1,6 @@
 [package]
 name = "retropie-rom-manager"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "A GPUI desktop app for installing/uninstalling RetroPie ROMs"
 
@@ -33,7 +33,7 @@ anyhow = "1"
 
 [package.metadata.deb]
 maintainer = "Fahim A Saikat <fahimabrar.saikat@gmail.com>"
-copyright = "2026, Fahim A Saikat"
+copyright = "2026, JaduPc <Fahim A Saikat>"
 license-file = ["LICENSE", "4"]
 extended-description = """\
 A desktop RetroPie ROM manager for Linux. Install, browse, and uninstall \
