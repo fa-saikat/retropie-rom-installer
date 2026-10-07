@@ -93,7 +93,7 @@ pub const SYSTEMS: &[SystemDef] = &[
         folder: "n64",
         extensions: &[".n64", ".z64", ".v64", ".zip"],
         primary_exts: &[],
-        icon: "square-rounded",
+        icon: "device-gamepad-3",
         accent: 0x00bfff,
     },
 ];

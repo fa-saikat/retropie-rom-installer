@@ -160,7 +160,7 @@ impl RootView {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .relative()
-            .w(px(200.))
+            .w(px(224.))
             .flex_shrink_0()
             .h_full()
             .p(px(16.))
@@ -185,8 +185,8 @@ impl RootView {
                     .id(SharedString::from(system.id))
                     .flex()
                     .items_center()
-                    .gap(px(10.))
-                    .px(px(10.))
+                    .gap(px(8.))
+                    .px(px(8.))
                     .py(px(8.))
                     .rounded(px(8.))
                     .when(is_selected, |el| el.bg(rgb(theme::SIDEBAR_ITEM_SELECTED_BG)))
@@ -213,7 +213,12 @@ impl RootView {
                     } else {
                         theme::SIDEBAR_TEXT
                     }))
-                    .child(system.display_name)
+                    .child(
+                        div()
+                            .flex_1()
+                            .truncate()
+                            .child(system.display_name),
+                    )
                     .child(
                         div()
                             .ml_auto()
