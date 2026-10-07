@@ -363,6 +363,7 @@ impl RootView {
     fn render_card(&self, entry: GameEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let file_count = entry.files.len();
         let name_for_click = entry.clone();
+        let initial: String = entry.name.chars().next().map(|c| c.to_string()).unwrap_or_default();
         div()
             .w(px(200.))
             .bg(rgb(theme::CARD_BG))
@@ -382,13 +383,26 @@ impl RootView {
                         div()
                             .size(px(30.))
                             .rounded(px(6.))
-                            .bg(rgb(theme::CARD_ICON_BG)),
+                            .bg(rgb(theme::CARD_ICON_BG))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(theme::TEXT_HEADING))
+                            .text_color(rgb(theme::ACCENT_LIGHT))
+                            .child(initial),
                     )
                     .child(
                         div()
                             .id(SharedString::from(format!("delete-{}", entry.name)))
-                            .text_size(px(theme::TEXT_BODY))
-                            .text_color(rgb(theme::TEXT_MUTED))
+                            .px(px(12.))
+                            .py(px(4.))
+                            .rounded(px(6.))
+                            .border_1()
+                            .border_color(rgb(theme::DANGER))
+                            .text_size(px(theme::TEXT_MICRO))
+                            .text_color(rgb(theme::DANGER))
+                            .hover(|s| s.bg(rgb(theme::DANGER_BG)))
+                            .active(|s| s.bg(rgb(theme::DANGER_DARK)))
                             .cursor_pointer()
                             .child("Delete")
                             .on_click(cx.listener(move |this, _event, _window, cx| {
@@ -400,6 +414,7 @@ impl RootView {
                 div()
                     .text_size(px(theme::TEXT_BODY))
                     .text_color(rgb(theme::TEXT_PRIMARY))
+                    .line_clamp(2)
                     .child(entry.name.clone()),
             )
             .child(
