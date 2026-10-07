@@ -144,7 +144,8 @@ impl Render for RootView {
                     div()
                         .absolute()
                         .inset_0()
-                        .child(img(bg_path).size_full().object_fit(ObjectFit::Cover)),
+                        .child(img(bg_path).size_full().object_fit(ObjectFit::Cover))
+                        .child(div().absolute().inset_0().bg(rgba(theme::BG_SCRIM))),
                 )
             })
             .child(self.render_sidebar(cx))

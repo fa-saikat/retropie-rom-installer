@@ -3,6 +3,9 @@
 //! theming can consume them without conversion.
 
 pub const WINDOW_BG: u32 = 0x0f1419;
+// RRGGBBAA scrim laid over the background image so the texture reads as
+// deliberate and text contrast holds everywhere, image or not.
+pub const BG_SCRIM: u32 = 0x0f1419d9;
 pub const SIDEBAR_TEXT: u32 = 0x8a8fa3;
 pub const SIDEBAR_ITEM_SELECTED_BG: u32 = 0x1c2033;
 
