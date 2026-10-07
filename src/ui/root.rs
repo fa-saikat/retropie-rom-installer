@@ -285,9 +285,21 @@ impl RootView {
                 el.child(
                     div()
                         .mt(px(14.))
-                        .text_size(px(theme::TEXT_CAPTION))
-                        .text_color(rgb(theme::TEXT_SECONDARY))
-                        .child(status),
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .size(px(6.))
+                                .rounded_full()
+                                .bg(rgb(theme::ACCENT)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(theme::TEXT_CAPTION))
+                                .text_color(rgb(theme::TEXT_SECONDARY))
+                                .child(status),
+                        ),
                 )
             })
     }
@@ -345,10 +357,40 @@ impl RootView {
 
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
         if self.games.is_empty() {
+            let icon_path = assets::system_icon(self.selected.id, self.selected.icon);
             return div()
-                .text_size(px(theme::TEXT_CAPTION))
-                .text_color(rgb(theme::TEXT_MUTED))
-                .child("No ROMs installed for this system yet.")
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .mt(px(48.))
+                .gap(px(10.))
+                .child(
+                    div()
+                        .size(px(52.))
+                        .rounded_full()
+                        .border_1()
+                        .border_dashed()
+                        .border_color(rgb(theme::TEXT_MUTED))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when_some(icon_path, |el, path| {
+                            el.child(img(path).size(px(24.)))
+                        }),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::TEXT_BODY))
+                        .text_color(rgb(theme::TEXT_SECONDARY))
+                        .child("Nothing here yet"),
+                )
+                .child(
+                    div()
+                        .text_size(px(theme::TEXT_CAPTION))
+                        .text_color(rgb(theme::TEXT_MUTED))
+                        .child("Use Add ROM above to install your first game."),
+                )
                 .into_any_element();
         }
 
