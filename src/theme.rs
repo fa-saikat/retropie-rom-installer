@@ -21,3 +21,12 @@ pub const DROPZONE_BORDER: u32 = 0x3a4060;
 
 pub const DANGER: u32 = 0xe0554f;
 pub const DANGER_BG: u32 = 0x2a1518;
+
+// Named type ramp (logical px). Every text element in the UI uses one of
+// these — no ad-hoc sizes — so the hierarchy stays consistent and a future
+// "too small / too big" pass is a five-line change here.
+pub const TEXT_TITLE: f32 = 20.;
+pub const TEXT_HEADING: f32 = 16.;
+pub const TEXT_BODY: f32 = 14.;
+pub const TEXT_CAPTION: f32 = 13.;
+pub const TEXT_MICRO: f32 = 12.;

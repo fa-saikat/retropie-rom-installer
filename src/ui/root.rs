@@ -172,7 +172,7 @@ impl RootView {
             .bg(rgba(0x0f1419cc))
             .child(
                 div()
-                    .text_size(px(15.))
+                    .text_size(px(theme::TEXT_HEADING))
                     .text_color(rgb(theme::TEXT_PRIMARY))
                     .pb(px(16.))
                     .child("ROM manager"),
@@ -198,7 +198,7 @@ impl RootView {
                             .when(icon_path.is_none(), |el| el.bg(rgb(system.accent)))
                             .when_some(icon_path, |el, path| el.child(img(path).size_full())),
                     )
-                    .text_size(px(13.))
+                    .text_size(px(theme::TEXT_BODY))
                     .text_color(rgb(if is_selected {
                         theme::TEXT_PRIMARY
                     } else {
@@ -208,7 +208,7 @@ impl RootView {
                     .child(
                         div()
                             .ml_auto()
-                            .text_size(px(11.))
+                            .text_size(px(theme::TEXT_MICRO))
                             .text_color(rgb(theme::TEXT_MUTED))
                             .child(count.to_string()),
                     )
@@ -228,7 +228,7 @@ impl RootView {
                 .py(px(8.))
                 .rounded(px(8.))
                 .cursor_pointer()
-                .text_size(px(13.))
+                .text_size(px(theme::TEXT_BODY))
                 .text_color(rgb(theme::SIDEBAR_TEXT))
                 .child("About")
                 .on_click(cx.listener(|this, _event, _window, cx| {
@@ -254,12 +254,12 @@ impl RootView {
                     .child(
                         div().flex().flex_col().child(
                             div()
-                                .text_size(px(16.))
+                                .text_size(px(theme::TEXT_TITLE))
                                 .text_color(rgb(theme::TEXT_PRIMARY))
                                 .child(self.selected.display_name),
                         ).child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(px(theme::TEXT_CAPTION))
                                 .text_color(rgb(theme::TEXT_MUTED))
                                 .child(format!("{} game(s) installed", self.games.len())),
                         ),
@@ -271,7 +271,7 @@ impl RootView {
                 el.child(
                     div()
                         .mt(px(14.))
-                        .text_size(px(12.))
+                        .text_size(px(theme::TEXT_CAPTION))
                         .text_color(rgb(theme::TEXT_SECONDARY))
                         .child(status),
                 )
@@ -296,13 +296,13 @@ impl RootView {
                     .flex_col()
                     .child(
                         div()
-                            .text_size(px(13.))
+                            .text_size(px(theme::TEXT_BODY))
                             .text_color(rgb(theme::TEXT_PRIMARY))
                             .child("Add a ROM"),
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(theme::TEXT_MICRO))
                             .text_color(rgb(theme::TEXT_MUTED))
                             .child(self.selected.extensions.join(" · ")),
                     ),
@@ -315,7 +315,7 @@ impl RootView {
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
         if self.games.is_empty() {
             return div()
-                .text_size(px(12.))
+                .text_size(px(theme::TEXT_CAPTION))
                 .text_color(rgb(theme::TEXT_MUTED))
                 .child("No ROMs installed for this system yet.")
                 .into_any_element();
@@ -356,7 +356,7 @@ impl RootView {
                     .child(
                         div()
                             .id(SharedString::from(format!("delete-{}", entry.name)))
-                            .text_size(px(13.))
+                            .text_size(px(theme::TEXT_BODY))
                             .text_color(rgb(theme::TEXT_MUTED))
                             .cursor_pointer()
                             .child("Delete")
@@ -367,13 +367,13 @@ impl RootView {
             )
             .child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(px(theme::TEXT_BODY))
                     .text_color(rgb(theme::TEXT_PRIMARY))
                     .child(entry.name.clone()),
             )
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(px(theme::TEXT_MICRO))
                     .text_color(rgb(theme::TEXT_MUTED))
                     .child(format!("{file_count} file(s)")),
             )
@@ -408,26 +408,26 @@ impl RootView {
             )
             .child(
                 div()
-                .text_size(px(15.))
+                .text_size(px(theme::TEXT_HEADING))
                 .text_color(rgb(theme::TEXT_PRIMARY))
                 .child("ROM manager"),
             )
             .child(
                 div()
-                .text_size(px(12.))
+                .text_size(px(theme::TEXT_CAPTION))
                 .text_color(rgb(theme::TEXT_MUTED))
                 .child(env!("CARGO_PKG_VERSION")),
             )
             .child(
                 div()
-                .text_size(px(12.))
+                .text_size(px(theme::TEXT_CAPTION))
                 .text_color(rgb(theme::TEXT_SECONDARY))
                 .mt(px(10.))
                 .child("A fast, simple ROM manager for RetroPie."),
             )
             .child(
                 div()
-                .text_size(px(11.))
+                .text_size(px(theme::TEXT_MICRO))
                 .text_color(rgb(theme::TEXT_MUTED))
                 .mt(px(14.))
                 .child("Copyright © 2026 Saikat"),
@@ -440,7 +440,7 @@ impl RootView {
                 .py(px(6.))
                 .rounded(px(8.))
                 .bg(rgb(theme::ACCENT))
-                .text_size(px(13.))
+                .text_size(px(theme::TEXT_BODY))
                 .text_color(rgb(0xffffff))
                 .cursor_pointer()
                 .child("Close")
@@ -472,13 +472,13 @@ impl RootView {
                     .gap(px(14.))
                     .child(
                         div()
-                            .text_size(px(14.))
+                            .text_size(px(theme::TEXT_BODY))
                             .text_color(rgb(theme::TEXT_PRIMARY))
                             .child(format!("Delete \"{}\"?", entry.name)),
                     )
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(px(theme::TEXT_CAPTION))
                             .text_color(rgb(theme::TEXT_SECONDARY))
                             .child(format!(
                                 "This deletes {} file(s) from {}. This can't be undone.",
@@ -499,7 +499,7 @@ impl RootView {
                                     .rounded(px(8.))
                                     .border_1()
                                     .border_color(rgb(theme::CARD_BORDER))
-                                    .text_size(px(13.))
+                                    .text_size(px(theme::TEXT_BODY))
                                     .text_color(rgb(theme::TEXT_SECONDARY))
                                     .cursor_pointer()
                                     .child("Cancel")
@@ -514,7 +514,7 @@ impl RootView {
                                     .py(px(6.))
                                     .rounded(px(8.))
                                     .bg(rgb(theme::DANGER))
-                                    .text_size(px(13.))
+                                    .text_size(px(theme::TEXT_BODY))
                                     .text_color(rgb(0xffffff))
                                     .cursor_pointer()
                                     .child("Delete")
