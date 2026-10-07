@@ -294,33 +294,53 @@ impl RootView {
 
     fn render_dropzone(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .flex()
-            .items_center()
-            .gap(px(12.))
+            .id("dropzone")
+            .w_full()
+            .py(px(22.))
             .mb(px(16.))
+            .rounded(px(12.))
+            .border_1()
+            .border_dashed()
+            .border_color(rgb(theme::DROPZONE_BORDER))
+            .hover(|s| {
+                s.bg(rgb(theme::CARD_BG))
+                    .border_color(rgb(theme::ACCENT))
+            })
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(8.))
             .child(
                 div()
-                    .id("dropzone")
-                    .px(px(20.))
-                    .py(px(10.))
-                    .rounded(px(10.))
-                    .bg(rgb(theme::ACCENT))
-                    .hover(|s| s.bg(rgb(theme::ACCENT_LIGHT)))
-                    .active(|s| s.bg(rgb(theme::ACCENT_DARK)))
-                    .cursor_pointer()
+                    .size(px(40.))
+                    .rounded_full()
+                    .border_1()
+                    .border_dashed()
+                    .border_color(rgb(theme::TEXT_MUTED))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(theme::TEXT_HEADING))
+                    .text_color(rgb(theme::TEXT_SECONDARY))
+                    .child("+"),
+            )
+            .child(
+                div()
                     .text_size(px(theme::TEXT_BODY))
-                    .text_color(rgb(0xffffff))
-                    .child("+ Add ROM")
-                    .on_click(cx.listener(|this, _event, _window, cx| {
-                        this.pick_and_install(cx);
-                    })),
+                    .text_color(rgb(theme::TEXT_PRIMARY))
+                    .child("Add ROM"),
             )
             .child(
                 div()
                     .text_size(px(theme::TEXT_MICRO))
                     .text_color(rgb(theme::TEXT_MUTED))
-                    .child(format!("Accepts {}", self.selected.extensions.join(" · "))),
+                    .child(format!("({})", self.selected.extensions.join(", "))),
             )
+            .on_click(cx.listener(|this, _event, _window, cx| {
+                this.pick_and_install(cx);
+            }))
     }
 
     fn render_grid(&self, cx: &mut Context<Self>) -> impl IntoElement {
