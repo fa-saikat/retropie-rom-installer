@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::detect;
 use crate::library::{self, GameEntry};
 use crate::scraper::{self, GameMeta, ScrapeStatus, ScraperSettings};
 use crate::skyscraper_setup;
@@ -58,6 +59,10 @@ pub struct RootView {
     pub(super) search: Entity<InputState>,
     pub(super) query: String,
     pub(super) scrape: Option<ScrapeJob>,
+    /// Games in `selected` whose contents say they're for another system,
+    /// keyed by the entry's first file. Filled in the background.
+    pub(super) misplaced: HashMap<PathBuf, &'static SystemDef>,
+    detect_cache: Arc<Mutex<detect::Cache>>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -101,6 +106,8 @@ impl RootView {
             search,
             query: String::new(),
             scrape: None,
+            misplaced: HashMap::new(),
+            detect_cache: Arc::default(),
             focus_handle,
             _subscriptions: vec![subscription],
         };
@@ -115,7 +122,8 @@ impl RootView {
     /// `ROM_MANAGER_VIEW=list`, `ROM_MANAGER_THEME=light`,
     /// `ROM_MANAGER_OPEN=<card index>` (details sheet),
     /// `ROM_MANAGER_DIALOG=delete|about|install-skyscraper`,
-    /// `ROM_MANAGER_RUN=install-skyscraper|scrape` (start it right away).
+    /// `ROM_MANAGER_RUN=install-skyscraper|scrape` (start it right away),
+    /// `ROM_MANAGER_INSTALL=<file>` (as if it were dropped on the window).
     #[cfg(debug_assertions)]
     fn debug_startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let var = |name| std::env::var(name).ok();
@@ -142,6 +150,9 @@ impl RootView {
             Some("scrape") => self.start_scrape(Vec::new(), window, cx),
             _ => {}
         }
+        if let Some(path) = var("ROM_MANAGER_INSTALL") {
+            self.install_paths(vec![PathBuf::from(path)], window, cx);
+        }
         cx.notify();
     }
 
@@ -158,7 +169,47 @@ impl RootView {
         self.skyscraper_installed = scraper::skyscraper_binary().is_some();
         self.can_install_skyscraper = skyscraper_setup::retropie_setup_script().is_some();
         self.es_running = scraper::emulationstation_running();
+        self.audit(cx);
         cx.notify();
+    }
+
+    /// Look inside the selected system's games, off the UI thread, for any
+    /// that belong to a different system.
+    fn audit(&mut self, cx: &mut Context<Self>) {
+        let system = self.selected;
+        let games = self.games.clone();
+        let cache = self.detect_cache.clone();
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_spawn(async move {
+                    let mut cache = cache.lock().unwrap();
+                    games
+                        .iter()
+                        .filter_map(|g| Some((g.files.first()?.clone(), cache.misplaced(system, g)?)))
+                        .collect::<HashMap<_, _>>()
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.selected.id == system.id {
+                    this.misplaced = found;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The system `entry` really belongs to, if it isn't the selected one.
+    pub(super) fn misplaced_as(&self, entry: &GameEntry) -> Option<&'static SystemDef> {
+        entry.files.first().and_then(|f| self.misplaced.get(f).copied())
+    }
+
+    pub(super) fn misplaced_games(&self) -> Vec<(&GameEntry, &'static SystemDef)> {
+        self.games
+            .iter()
+            .filter_map(|g| Some((g, self.misplaced_as(g)?)))
+            .collect()
     }
 
     pub(super) fn select_system(
@@ -246,34 +297,80 @@ impl RootView {
         .detach();
     }
 
-    /// Install each file into the selected system, report the outcome, then
-    /// scrape whatever got installed.
+    /// Install dropped/picked files into the selected system. Files whose
+    /// contents say they're for a different system are held back and the
+    /// user is asked where they should go.
     pub(super) fn install_paths(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
         let system = self.selected;
         cx.spawn_in(window, async move |this, cx| {
-            let results = cx
+            let checked = cx
                 .background_spawn(async move {
                     paths
                         .into_iter()
                         .map(|p| {
+                            let found = detect::detect(&p).filter(|found| found.id != system.id);
+                            (p, found)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            let mut here = Vec::new();
+            let mut elsewhere = Vec::new();
+            for (path, found) in checked {
+                match found {
+                    Some(other) => elsewhere.push((path, other)),
+                    None => here.push((path, system)),
+                }
+            }
+            this.update_in(cx, |this, window, cx| {
+                if !here.is_empty() {
+                    this.install_into(here, window, cx);
+                }
+                if !elsewhere.is_empty() {
+                    super::details::confirm_wrong_system(system, elsewhere, window, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Install each file into the system paired with it, report the outcome,
+    /// then scrape whatever landed in the selected system.
+    pub(super) fn install_into(
+        &mut self,
+        jobs: Vec<(PathBuf, &'static SystemDef)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |this, cx| {
+            let results = cx
+                .background_spawn(async move {
+                    jobs.into_iter()
+                        .map(|(p, system)| {
                             let r = library::install_file(&p, system);
-                            (p, r)
+                            (p, system, r)
                         })
                         .collect::<Vec<_>>()
                 })
                 .await;
 
             this.update_in(cx, |this, window, cx| {
+                let selected = this.selected;
                 let mut installed = Vec::new();
-                for (path, result) in results {
+                for (path, system, result) in results {
                     let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
                     match result {
                         Ok(done) => {
-                            window.push_notification(
-                                Notification::success(done.summary).title(format!("Installed {name}")),
-                                cx,
-                            );
-                            installed.extend(done.files);
+                            let title = if system.id == selected.id {
+                                format!("Installed {name}")
+                            } else {
+                                format!("Installed {name} to {}", system.display_name)
+                            };
+                            window.push_notification(Notification::success(done.summary).title(title), cx);
+                            if system.id == selected.id {
+                                installed.extend(done.files);
+                            }
                         }
                         Err(err) => window.push_notification(
                             Notification::error(err.to_string()).title(format!("Couldn't install {name}")),
@@ -282,7 +379,7 @@ impl RootView {
                     }
                 }
                 this.refresh(cx);
-                let targets = scraper::scrape_targets(system, &installed);
+                let targets = scraper::scrape_targets(selected, &installed);
                 if this.skyscraper_installed && !targets.is_empty() {
                     this.start_scrape(targets, window, cx);
                 }
@@ -450,6 +547,63 @@ impl RootView {
     // -----------------------------------------------------------------------
     // Uninstall
     // -----------------------------------------------------------------------
+
+    /// Move a game to the system its contents say it's for. Scraped art
+    /// stays behind (it was looked up as the wrong system), so it's removed.
+    pub(super) fn move_game(
+        &mut self,
+        entry: GameEntry,
+        to: &'static SystemDef,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (title, _) = entry.title_and_tags();
+        match self.move_one(&entry, to) {
+            Ok(()) => window.push_notification(
+                Notification::success(format!("It's in ~/RetroPie/roms/{} now.", to.folder))
+                    .title(format!("Moved {title} to {}", to.display_name)),
+                cx,
+            ),
+            Err(err) => window.push_notification(
+                Notification::error(err.to_string()).title(format!("Couldn't move {title}")),
+                cx,
+            ),
+        }
+        window.close_sheet(cx);
+        self.refresh(cx);
+    }
+
+    /// Move every flagged game in the selected system to where it belongs.
+    pub(super) fn move_all_misplaced(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let jobs: Vec<(GameEntry, &'static SystemDef)> =
+            self.misplaced_games().into_iter().map(|(g, to)| (g.clone(), to)).collect();
+        let mut moved = 0;
+        for (entry, to) in &jobs {
+            match self.move_one(entry, to) {
+                Ok(()) => moved += 1,
+                Err(err) => window.push_notification(
+                    Notification::error(err.to_string()).title(format!("Couldn't move {}", entry.title_and_tags().0)),
+                    cx,
+                ),
+            }
+        }
+        if moved > 0 {
+            window.push_notification(
+                Notification::success("Each one is in the folder for the system it was made for.")
+                    .title(format!("Moved {moved} {}", if moved == 1 { "game" } else { "games" })),
+                cx,
+            );
+        }
+        self.refresh(cx);
+    }
+
+    fn move_one(&mut self, entry: &GameEntry, to: &'static SystemDef) -> anyhow::Result<()> {
+        library::move_game(entry, self.selected, to)?;
+        if let Some(meta) = scraper::meta_for(entry, &self.gamelist) {
+            scraper::remove_media(self.selected, meta);
+        }
+        Ok(())
+    }
 
     pub(super) fn confirm_delete(&mut self, entry: GameEntry, window: &mut Window, cx: &mut Context<Self>) {
         let meta = scraper::meta_for(&entry, &self.gamelist).cloned();

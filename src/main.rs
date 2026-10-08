@@ -1,4 +1,5 @@
 mod assets;
+mod detect;
 mod library;
 mod scraper;
 mod skyscraper_setup;
