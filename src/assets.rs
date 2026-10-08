@@ -1,26 +1,53 @@
-//! Minimal on-disk asset resolution for the window background image and
-//! sidebar icons.
+//! Asset loading: the Lucide icons the UI uses (embedded, via GPUI Kit) and
+//! the per-system icons, which are plain SVG files on disk.
 //!
-//! Deliberately *not* an embedded/bundled asset pipeline — these are plain
-//! files a user drops into an `assets/` folder next to the app. Every
-//! lookup here is a simple existence check and returns `None` when nothing
-//! is found, so callers can fall back to a solid color / no icon without
-//! any error handling of their own.
+//! System icons are *not* embedded — they live in an `assets/` folder next
+//! to the app (or the installed `/usr/share/...` copy) so people can swap
+//! them. Every lookup is a simple existence check and returns `None` when
+//! nothing is found, so callers fall back to a generic gamepad icon.
 //!
 //! Expected layout:
 //! ```text
 //! assets/
-//!   background.jpg        (or .jpeg / .png / bg.jpg / bg.png)
 //!   icons/
 //!     psx.svg              <- emulator-specific, checked first
 //!     device-gamepad.svg   <- generic fallback (SystemDef::icon), e.g. Tabler icons
 //! ```
 
+use gpui_kit::{AssetSource, Result, SharedString};
+use std::borrow::Cow;
 use std::path::PathBuf;
 
-/// Root of the asset tree. Resolution order:
+// GPUI Kit's default bundle covers ~100 Lucide icons; these are the extra
+// ones this app uses. Unlisted names fall through to the default bundle.
+gpui_kit::assets::icon_assets!(ExtraIcons, [
+    Trash, LayoutGrid, List, ImageDown, ImageOff, Gamepad2, Upload, X, VideoOff, Files, Download,
+]);
+
+/// The app's asset source: our extra icons first, then GPUI Kit's defaults.
+pub struct AppAssets;
+
+impl AssetSource for AppAssets {
+    fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if let Some(bytes) = ExtraIcons.load(path)? {
+            return Ok(Some(bytes));
+        }
+        gpui_kit::assets::Assets.load(path)
+    }
+
+    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        let mut paths = gpui_kit::assets::Assets.list(path)?;
+        paths.extend(ExtraIcons.list(path)?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
+
+/// Root of the on-disk asset tree. Resolution order:
 /// 1. `assets/` next to the running executable (installed/release layout)
 /// 2. `assets/` in the current working directory (`cargo run` from repo root)
+/// 3. the Debian package's `/usr/share/retropie-rom-manager/assets`
 fn assets_root() -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
@@ -44,45 +71,17 @@ fn assets_root() -> Option<PathBuf> {
     None
 }
 
-/// Path to the window background image, if the user has dropped one into
-/// the asset dir. Tries a handful of common filenames/extensions so people
-/// don't have to guess the exact one expected. Returns `None` (and the UI
-/// falls back to `theme::WINDOW_BG`) if nothing matches.
-pub fn background_image() -> Option<PathBuf> {
-    let root = assets_root()?;
-    for name in [
-        "background.jpg",
-        "background.jpeg",
-        "background.png",
-        "bg.jpg",
-        "bg.jpeg",
-        "bg.png",
-    ] {
-        let candidate = root.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// Icon for a system's sidebar row.
+/// Icon for a system.
 ///
-/// Looks for an emulator-specific icon first (`icons/<system_id>.{svg,png}`,
+/// Looks for an emulator-specific icon first (`icons/<system_id>.svg`,
 /// e.g. `icons/psx.svg`), then falls back to the generic icon named on
-/// `SystemDef::icon` (`icons/<icon>.{svg,png}`, e.g. `icons/device-gamepad.svg`
-/// — matches Tabler icon names, since that's what `SystemDef::icon` stores).
-/// Returns `None` if neither exists; the UI then falls back to a plain
-/// accent-colored swatch so the row never looks broken.
+/// `SystemDef::icon` (`icons/<icon>.svg` — Tabler icon names, since that's
+/// what `SystemDef::icon` stores). Only SVGs: they're drawn as single-colour
+/// masks so they can sit white-on-accent in the UI.
 pub fn system_icon(system_id: &str, generic_icon: &str) -> Option<PathBuf> {
     let root = assets_root()?;
-    for stem in [system_id, generic_icon] {
-        for ext in ["svg", "png"] {
-            let candidate = root.join("icons").join(format!("{stem}.{ext}"));
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    [system_id, generic_icon]
+        .iter()
+        .map(|stem| root.join("icons").join(format!("{stem}.svg")))
+        .find(|candidate| candidate.is_file())
 }

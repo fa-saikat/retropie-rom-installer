@@ -35,7 +35,74 @@ pub struct GameEntry {
     pub files: Vec<PathBuf>,
 }
 
-fn ext_lower(path: &Path) -> String {
+impl GameEntry {
+    /// Split a No-Intro/Redump style name into the title and its
+    /// parenthesised tags: `"Doom (USA) (Rev 1)"` → `("Doom", ["USA", "Rev 1"])`.
+    pub fn title_and_tags(&self) -> (String, Vec<String>) {
+        let mut title = String::new();
+        let mut tags = Vec::new();
+        let mut rest = self.name.as_str();
+        while let Some(open) = rest.find('(') {
+            title.push_str(&rest[..open]);
+            let Some(close) = rest[open..].find(')') else { break };
+            tags.push(rest[open + 1..open + close].trim().to_string());
+            rest = &rest[open + close + 1..];
+        }
+        title.push_str(rest);
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        (if title.is_empty() { self.name.clone() } else { title }, tags)
+    }
+
+    /// Two-letter placeholder for games without box art: initials of the
+    /// first two words ("Metal Gear Solid" → "MG"), skipping a leading
+    /// "The"/"A", or the first two letters of a one-word title.
+    pub fn monogram(&self) -> String {
+        let (title, _) = self.title_and_tags();
+        let words: Vec<&str> = title
+            .split(|c: char| c.is_whitespace() || "-:&,".contains(c))
+            .filter(|w| w.chars().next().is_some_and(char::is_alphanumeric))
+            .collect();
+        let words = match words.as_slice() {
+            [first, rest @ ..] if !rest.is_empty() && ["the", "a"].contains(&first.to_lowercase().as_str()) => rest,
+            all => all,
+        };
+        let letters: String = match words {
+            [one] => one.chars().take(2).collect(),
+            [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
+            [] => title.chars().take(2).collect(),
+        };
+        letters.to_uppercase()
+    }
+
+    /// Sizes of `files` in bytes (0 for anything that vanished meanwhile).
+    pub fn file_sizes(&self) -> Vec<u64> {
+        self.files
+            .iter()
+            .map(|f| fs::metadata(f).map(|m| m.len()).unwrap_or(0))
+            .collect()
+    }
+}
+
+/// "344 B", "80 KB", "2.0 MB", "449 MB", "1.2 GB".
+pub fn format_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= 100.0 * MB {
+        format!("{:.0} MB", b / MB)
+    } else if b >= MB {
+        format!("{:.1} MB", b / MB)
+    } else if b >= KB {
+        format!("{:.0} KB", b / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+pub fn ext_lower(path: &Path) -> String {
     path.extension()
         .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
         .unwrap_or_default()
@@ -179,10 +246,18 @@ fn unique_dest(target_dir: &Path, filename: &str) -> PathBuf {
     }
 }
 
+/// What an install put on disk: a human-readable summary for the status
+/// line, plus the exact files written so they can be scraped afterwards.
+#[derive(Debug, Clone)]
+pub struct Installed {
+    pub summary: String,
+    pub files: Vec<PathBuf>,
+}
+
 /// Install a single downloaded file for `system`. Zips are extracted (or
 /// copied as-is if they don't contain a matching rom); anything else is
 /// copied verbatim if its extension is accepted.
-pub fn install_file(src: &Path, system: &SystemDef) -> Result<String> {
+pub fn install_file(src: &Path, system: &SystemDef) -> Result<Installed> {
     let target_dir = ensure_system_dir(system)?;
     let ext = ext_lower(src);
 
@@ -204,7 +279,10 @@ pub fn install_file(src: &Path, system: &SystemDef) -> Result<String> {
         .to_string();
     let dest = unique_dest(&target_dir, &file_name);
     fs::copy(src, &dest)?;
-    Ok(format!("copied -> {}", dest.file_name().unwrap().to_string_lossy()))
+    Ok(Installed {
+        summary: format!("copied -> {}", dest.file_name().unwrap().to_string_lossy()),
+        files: vec![dest],
+    })
 }
 
 fn rom_exts_for(system: &SystemDef) -> Vec<&'static str> {
@@ -274,7 +352,7 @@ fn extract_zip(src: &Path, tmp_dir: &Path) -> Result<()> {
     }
 }
 
-fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<String> {
+fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Installed> {
     let rom_exts = rom_exts_for(system);
 
     // Arcade-style systems: the zip *is* the rom, nothing to extract.
@@ -282,7 +360,10 @@ fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Stri
         let file_name = src.file_name().unwrap().to_string_lossy().to_string();
         let dest = unique_dest(target_dir, &file_name);
         fs::copy(src, &dest)?;
-        return Ok(format!("copied as-is -> {}", dest.file_name().unwrap().to_string_lossy()));
+        return Ok(Installed {
+            summary: format!("copied as-is -> {}", dest.file_name().unwrap().to_string_lossy()),
+            files: vec![dest],
+        });
     }
 
     let tmp_dir = tempfile::Builder::new().prefix("retropie-rom-manager-").tempdir()?;
@@ -297,19 +378,29 @@ fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Stri
         let file_name = entry.file_name().unwrap().to_string_lossy().to_string();
         let dest = unique_dest(target_dir, &file_name);
         fs::rename(&entry, &dest).or_else(|_| fs::copy(&entry, &dest).map(|_| ()))?;
-        moved.push(dest.file_name().unwrap().to_string_lossy().to_string());
+        moved.push(dest);
     }
 
     if moved.is_empty() {
         let file_name = src.file_name().unwrap().to_string_lossy().to_string();
         let dest = unique_dest(target_dir, &file_name);
         fs::copy(src, &dest)?;
-        return Ok(format!(
-            "no matching roms inside, copied as-is -> {}",
-            dest.file_name().unwrap().to_string_lossy()
-        ));
+        return Ok(Installed {
+            summary: format!(
+                "no matching roms inside, copied as-is -> {}",
+                dest.file_name().unwrap().to_string_lossy()
+            ),
+            files: vec![dest],
+        });
     }
-    Ok(format!("extracted {} file(s) -> {}", moved.len(), moved.join(", ")))
+    let names: Vec<String> = moved
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    Ok(Installed {
+        summary: format!("extracted {} file(s) -> {}", moved.len(), names.join(", ")),
+        files: moved,
+    })
 }
 
 fn walk_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
@@ -446,6 +537,36 @@ mod tests {
 
         assert_eq!(group.len(), 1);
         assert_eq!(group[0].files.len(), 3);
+    }
+
+    fn entry(name: &str) -> GameEntry {
+        GameEntry { name: name.into(), files: Vec::new() }
+    }
+
+    #[test]
+    fn splits_title_from_no_intro_tags() {
+        let (title, tags) = entry("Metal Gear Solid (USA) (Disc 1) (Rev 1)").title_and_tags();
+        assert_eq!(title, "Metal Gear Solid");
+        assert_eq!(tags, ["USA", "Disc 1", "Rev 1"]);
+        assert_eq!(entry("FIFA Soccer 2005").title_and_tags(), ("FIFA Soccer 2005".into(), vec![]));
+        assert_eq!(entry("(Unl)").title_and_tags().0, "(Unl)");
+    }
+
+    #[test]
+    fn monograms_skip_articles_and_punctuation() {
+        assert_eq!(entry("Metal Gear Solid (USA)").monogram(), "MG");
+        assert_eq!(entry("The Legend of Zelda - Ocarina of Time (USA)").monogram(), "LO");
+        assert_eq!(entry("Doom (USA) (Rev 1)").monogram(), "DO");
+        assert_eq!(entry("Tekken 3 (USA)").monogram(), "T3");
+    }
+
+    #[test]
+    fn formats_sizes_like_a_file_manager() {
+        assert_eq!(format_size(344), "344 B");
+        assert_eq!(format_size(80 * 1024), "80 KB");
+        assert_eq!(format_size(2 * 1024 * 1024), "2.0 MB");
+        assert_eq!(format_size(449 * 1024 * 1024), "449 MB");
+        assert_eq!(format_size(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
     }
 
     /// Test-only helper that runs the same grouping logic as
