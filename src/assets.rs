@@ -22,6 +22,7 @@ use std::path::PathBuf;
 // ones this app uses. Unlisted names fall through to the default bundle.
 gpui_kit::assets::icon_assets!(ExtraIcons, [
     Trash, LayoutGrid, List, ImageDown, ImageOff, Gamepad2, Upload, X, VideoOff, Files, Download,
+    FolderInput, TriangleAlert, ArrowRight,
 ]);
 
 /// The app's asset source: our extra icons first, then GPUI Kit's defaults.

@@ -22,6 +22,7 @@ use super::root::{RootView, ViewMode};
 use super::sidebar::{system_glyph, system_tile};
 use crate::library::GameEntry;
 use crate::scraper::ScrapeStatus;
+use crate::systems::SystemDef;
 use crate::theme;
 
 const SIDEBAR_WIDTH: f32 = 240.;
@@ -53,6 +54,11 @@ fn initials_tile(bg: Hsla, fg: Hsla, initials: String) -> Div {
         .font_bold()
         .text_color(fg)
         .child(initials)
+}
+
+/// "Looks like a GBA game" chip for a game sitting in the wrong system.
+fn wrong_system_tag(to: &'static SystemDef) -> Tag {
+    Tag::danger().small().child(format!("{} game?", to.short_name))
 }
 
 /// First genre only — ScreenScraper often sends "Shooter / Run and gun".
@@ -235,6 +241,46 @@ impl RootView {
                 ),
                 body,
                 None,
+                cx,
+            ));
+        }
+        // A game in the wrong folder won't even start, so this outranks
+        // anything about artwork.
+        let misplaced = self.misplaced_games();
+        if !misplaced.is_empty() {
+            let system = self.selected;
+            let one = misplaced.len() == 1;
+            let (lead, label) = match misplaced.as_slice() {
+                [(game, to)] => (
+                    format!("“{}” looks like a {} game", game.title_and_tags().0, to.display_name),
+                    format!("Move to {}", to.short_name),
+                ),
+                _ => (
+                    format!("{} look like they're for other systems", plural(misplaced.len(), "game")),
+                    format!("Move {}", misplaced.len()),
+                ),
+            };
+            return Some(Self::notice_row(
+                t.danger,
+                Icon::new(IconName::TriangleAlert),
+                lead,
+                format!(
+                    "EmulationStation starts everything in roms/{} with the {} emulator, so {}. Move {} where {}, or delete {}.",
+                    system.folder,
+                    system.display_name,
+                    if one { "it won't run" } else { "they won't run" },
+                    if one { "it" } else { "them" },
+                    if one { "it belongs" } else { "they belong" },
+                    if one { "it" } else { "them" },
+                ),
+                Some(
+                    Button::new("move-misplaced")
+                        .primary()
+                        .small()
+                        .icon(Icon::new(IconName::FolderInput))
+                        .label(label)
+                        .on_click(cx.listener(|this, _, window, cx| details::confirm_move_misplaced(this, window, cx))),
+                ),
                 cx,
             ));
         }
@@ -567,6 +613,7 @@ impl RootView {
             );
 
         // Row 1: what the game is. Row 2: rating (if scraped) and file count.
+        let misplaced = self.misplaced_as(entry);
         let (chips, rating) = match status {
             ScrapeStatus::Scraped(m) => (
                 h_flex()
@@ -586,6 +633,8 @@ impl RootView {
             ),
         };
 
+        let chips = h_flex().gap_1().children(misplaced.map(wrong_system_tag)).child(chips);
+
         let open_entry = entry.clone();
         v_flex()
             .id(("card", index))
@@ -593,7 +642,7 @@ impl RootView {
             .rounded(t.radius_lg)
             .overflow_hidden()
             .border_1()
-            .border_color(t.border.opacity(0.7))
+            .border_color(if misplaced.is_some() { t.danger.opacity(0.6) } else { t.border.opacity(0.7) })
             .bg(theme::card_bg(cx))
             .cursor_pointer()
             .hover(|s| s.border_color(t.border))
@@ -657,6 +706,7 @@ impl RootView {
                     .when_some(m.rating, |row, r| row.child(Rating::new(("list-rating", i)).value(stars(r)).xsmall().disabled(true))),
                 _ => h_flex().gap_1().children(tags.iter().take(2).map(|tag| Tag::secondary().small().child(tag.clone()))),
             };
+            let details_cell = h_flex().gap_1().children(self.misplaced_as(entry).map(wrong_system_tag)).child(details_cell);
             let open_entry = (*entry).clone();
             let delete_entry = (*entry).clone();
             h_flex()

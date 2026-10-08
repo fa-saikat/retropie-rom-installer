@@ -1,4 +1,5 @@
-//! Game details sheet, the delete confirmation and the About dialog.
+//! Game details sheet, the delete / wrong-system confirmations and the
+//! About dialog.
 //!
 //! GPUI Kit re-runs a sheet/dialog builder on every render, so each one
 //! works from a snapshot taken when it opens and talks back to `RootView`
@@ -13,9 +14,11 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, WindowExt, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use std::path::PathBuf;
 
 use super::root::RootView;
 use super::sidebar::system_glyph;
+use crate::detect;
 use crate::library::{self, GameEntry};
 use crate::scraper::{self, GameMeta, MediaState, ScrapeStatus};
 use crate::systems::SystemDef;
@@ -31,6 +34,8 @@ struct Snapshot {
     media: Vec<scraper::MediaSlot>,
     scrape_source: String,
     can_scrape: bool,
+    /// The system this game's contents say it's really for.
+    misplaced: Option<&'static SystemDef>,
 }
 
 pub(super) fn open_details(view: &mut RootView, entry: &GameEntry, window: &mut Window, cx: &mut Context<RootView>) {
@@ -48,6 +53,12 @@ pub(super) fn open_details(view: &mut RootView, entry: &GameEntry, window: &mut 
         sizes: entry.file_sizes(),
         scrape_source: view.settings.scrape_source.clone(),
         can_scrape: view.skyscraper_installed && view.scrape.is_none(),
+        // The background audit may not have reached this game yet; one
+        // file is cheap enough to check here.
+        misplaced: view.misplaced_as(entry).or_else(|| {
+            let file = detect::representative(view.selected, entry)?;
+            detect::detect(&file).filter(|found| found.id != view.selected.id)
+        }),
     };
     let this = cx.entity().downgrade();
     window.open_sheet(cx, move |sheet, _, cx| {
@@ -130,6 +141,17 @@ fn render_body(s: &Snapshot, cx: &App) -> impl IntoElement {
                 .child(div().text_sm().text_color(t.muted_foreground).child(byline))
                 .child(h_flex().gap_1().children(tags.into_iter().map(|tag| Tag::secondary().small().child(tag)))),
         );
+
+    let misplaced = s.misplaced.map(|other| {
+        gpui_kit::component::alert::Alert::warning(
+            "misplaced",
+            format!(
+                "It's in ~/RetroPie/roms/{}, so EmulationStation will try to start it with the {} emulator and it won't run. Move it to {}, or delete it.",
+                s.system.folder, s.system.display_name, other.display_name
+            ),
+        )
+        .title(format!("This looks like a {} game", other.display_name))
+    });
 
     let about = match meta {
         Some(m) => {
@@ -238,6 +260,7 @@ fn render_body(s: &Snapshot, cx: &App) -> impl IntoElement {
         .pb_4()
         .children(banner)
         .child(head)
+        .children(misplaced)
         .child(about)
         .child(section(
             "Files",
@@ -309,7 +332,8 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
     let folder = library::roms_root().join(s.system.folder);
     let scrape_entry = s.entry.clone();
     let delete_entry = s.entry.clone();
-    let (rescrape, delete) = (this.clone(), this);
+    let move_entry = s.entry.clone();
+    let (rescrape, delete, relocate) = (this.clone(), this.clone(), this);
     h_flex()
         .w_full()
         .gap_2()
@@ -325,7 +349,8 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
                 }),
         )
         .child(div().flex_1())
-        .child(
+        // Scraping as the wrong system would only fetch the wrong game.
+        .when(s.misplaced.is_none(), |footer| footer.child(
             Button::new("sheet-scrape")
                 .outline()
                 .small()
@@ -336,7 +361,19 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
                     window.close_sheet(cx);
                     rescrape.update(cx, |view, cx| view.scrape_one(&scrape_entry, window, cx)).ok();
                 }),
-        )
+        ))
+        .when_some(s.misplaced, |footer, to| {
+            footer.child(
+                Button::new("sheet-move")
+                    .primary()
+                    .small()
+                    .icon(Icon::new(IconName::FolderInput))
+                    .label(format!("Move to {}", to.short_name))
+                    .on_click(move |_, window, cx| {
+                        relocate.update(cx, |view, cx| view.move_game(move_entry.clone(), to, window, cx)).ok();
+                    }),
+            )
+        })
         .child(
             Button::new("sheet-delete")
                 .danger()
@@ -395,6 +432,140 @@ pub(super) fn confirm_delete_dialog(
             .cancel_text("Cancel")
             .on_ok(move |_, window, cx| {
                 this.update(cx, |view, cx| view.confirm_delete(entry.clone(), window, cx)).ok();
+                true
+            })
+    });
+}
+
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name().unwrap_or_default().to_string_lossy().to_string()
+}
+
+/// One "thing → system" line, shared by the wrong-system dialogs.
+fn destination_row(label: String, to: &'static SystemDef, cx: &App) -> Div {
+    let t = cx.theme();
+    h_flex()
+        .gap_2()
+        .px_2p5()
+        .py_1p5()
+        .border_b_1()
+        .border_color(t.border)
+        .text_xs()
+        .child(div().flex_1().min_w_0().truncate().font_family(t.mono_font_family.clone()).child(label))
+        .child(Icon::new(IconName::ArrowRight).xsmall().text_color(t.muted_foreground))
+        .child(
+            h_flex()
+                .gap_1()
+                .flex_shrink_0()
+                .font_medium()
+                .child(system_glyph(to, px(11.), t.foreground))
+                .child(to.short_name),
+        )
+}
+
+fn destination_list(rows: impl IntoIterator<Item = Div>, cx: &App) -> Div {
+    let t = cx.theme();
+    v_flex()
+        .max_h(px(180.))
+        .overflow_hidden()
+        .rounded(t.radius)
+        .border_1()
+        .border_color(t.border)
+        .children(rows)
+}
+
+/// Some of the files being installed into `here` are, by their contents,
+/// games for other systems. Offer to put them where they belong.
+pub(super) fn confirm_wrong_system(
+    here: &'static SystemDef,
+    files: Vec<(PathBuf, &'static SystemDef)>,
+    window: &mut Window,
+    cx: &mut Context<RootView>,
+) {
+    let this = cx.entity().downgrade();
+    let n = files.len();
+    let title = match files.as_slice() {
+        [(path, other)] => format!("{} looks like a {} game", file_name(path), other.display_name),
+        _ => format!("{n} files look like games for other systems"),
+    };
+    let mut targets: Vec<&'static SystemDef> = files.iter().map(|(_, to)| *to).collect();
+    targets.dedup_by_key(|s| s.id);
+    let go_label = match targets.as_slice() {
+        [only] => format!("Install to {}", only.display_name),
+        _ => "Install where they belong".to_string(),
+    };
+    // "Anyway" only makes sense if this system takes at least one of them.
+    let can_stay = files
+        .iter()
+        .any(|(p, _)| here.extensions.contains(&library::ext_lower(p).as_str()));
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let t = cx.theme();
+        let (go, stay) = (this.clone(), this.clone());
+        let go_files = files.clone();
+        let stay_files: Vec<(PathBuf, &'static SystemDef)> = files.iter().map(|(p, _)| (p.clone(), here)).collect();
+        dialog
+            .title(title.clone())
+            .w(px(480.))
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(div().text_sm().text_color(t.muted_foreground).child(format!(
+                        "You're adding to {}. EmulationStation would start {} with the {} emulator, and {} won't run there.",
+                        here.display_name,
+                        if n == 1 { "it" } else { "them" },
+                        here.display_name,
+                        if n == 1 { "it" } else { "they" },
+                    )))
+                    .child(destination_list(files.iter().map(|(p, to)| destination_row(file_name(p), to, cx)), cx)),
+            )
+            .footer(
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(Button::new("wrong-skip").ghost().label("Skip").on_click(|_, window, cx| window.close_dialog(cx)))
+                    .child(div().flex_1())
+                    .when(can_stay, |footer| {
+                        footer.child(
+                            Button::new("wrong-stay")
+                                .outline()
+                                .label(format!("Add to {} anyway", here.short_name))
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    stay.update(cx, |view, cx| view.install_into(stay_files.clone(), window, cx)).ok();
+                                }),
+                        )
+                    })
+                    .child(Button::new("wrong-go").primary().label(go_label.clone()).on_click(move |_, window, cx| {
+                        window.close_dialog(cx);
+                        go.update(cx, |view, cx| view.install_into(go_files.clone(), window, cx)).ok();
+                    })),
+            )
+    });
+}
+
+/// Confirm moving every flagged game in the selected system.
+pub(super) fn confirm_move_misplaced(view: &mut RootView, window: &mut Window, cx: &mut Context<RootView>) {
+    let this = cx.entity().downgrade();
+    let games: Vec<(String, &'static SystemDef)> = view
+        .misplaced_games()
+        .into_iter()
+        .map(|(g, to)| (g.title_and_tags().0, to))
+        .collect();
+    let folder = view.selected.folder;
+    window.open_alert_dialog(cx, move |alert: AlertDialog, _, cx| {
+        let n = games.len();
+        let this = this.clone();
+        alert
+            .confirm()
+            .title(format!("Move {n} {}?", if n == 1 { "game" } else { "games" }))
+            .description(format!(
+                "Each one goes from ~/RetroPie/roms/{folder} to the folder for the system it was made for. Artwork scraped for the wrong system is removed."
+            ))
+            .child(destination_list(games.iter().map(|(title, to)| destination_row(title.clone(), to, cx)), cx))
+            .ok_text("Move games")
+            .cancel_text("Cancel")
+            .on_ok(move |_, window, cx| {
+                this.update(cx, |view, cx| view.move_all_misplaced(window, cx)).ok();
                 true
             })
     });
