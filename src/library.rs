@@ -35,7 +35,74 @@ pub struct GameEntry {
     pub files: Vec<PathBuf>,
 }
 
-fn ext_lower(path: &Path) -> String {
+impl GameEntry {
+    /// Split a No-Intro/Redump style name into the title and its
+    /// parenthesised tags: `"Doom (USA) (Rev 1)"` → `("Doom", ["USA", "Rev 1"])`.
+    pub fn title_and_tags(&self) -> (String, Vec<String>) {
+        let mut title = String::new();
+        let mut tags = Vec::new();
+        let mut rest = self.name.as_str();
+        while let Some(open) = rest.find('(') {
+            title.push_str(&rest[..open]);
+            let Some(close) = rest[open..].find(')') else { break };
+            tags.push(rest[open + 1..open + close].trim().to_string());
+            rest = &rest[open + close + 1..];
+        }
+        title.push_str(rest);
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        (if title.is_empty() { self.name.clone() } else { title }, tags)
+    }
+
+    /// Two-letter placeholder for games without box art: initials of the
+    /// first two words ("Metal Gear Solid" → "MG"), skipping a leading
+    /// "The"/"A", or the first two letters of a one-word title.
+    pub fn monogram(&self) -> String {
+        let (title, _) = self.title_and_tags();
+        let words: Vec<&str> = title
+            .split(|c: char| c.is_whitespace() || "-:&,".contains(c))
+            .filter(|w| w.chars().next().is_some_and(char::is_alphanumeric))
+            .collect();
+        let words = match words.as_slice() {
+            [first, rest @ ..] if !rest.is_empty() && ["the", "a"].contains(&first.to_lowercase().as_str()) => rest,
+            all => all,
+        };
+        let letters: String = match words {
+            [one] => one.chars().take(2).collect(),
+            [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
+            [] => title.chars().take(2).collect(),
+        };
+        letters.to_uppercase()
+    }
+
+    /// Sizes of `files` in bytes (0 for anything that vanished meanwhile).
+    pub fn file_sizes(&self) -> Vec<u64> {
+        self.files
+            .iter()
+            .map(|f| fs::metadata(f).map(|m| m.len()).unwrap_or(0))
+            .collect()
+    }
+}
+
+/// "344 B", "80 KB", "2.0 MB", "449 MB", "1.2 GB".
+pub fn format_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= 100.0 * MB {
+        format!("{:.0} MB", b / MB)
+    } else if b >= MB {
+        format!("{:.1} MB", b / MB)
+    } else if b >= KB {
+        format!("{:.0} KB", b / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+pub fn ext_lower(path: &Path) -> String {
     path.extension()
         .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
         .unwrap_or_default()
@@ -154,6 +221,54 @@ pub fn uninstall_game(entry: &GameEntry) -> Result<usize> {
     Ok(deleted)
 }
 
+/// Move every file of `entry` into `to`'s ROM folder, keeping file names
+/// as they are (a .cue names its .bins, so renaming any of them would break
+/// the game). The one exception is a lone cartridge dump `to` wouldn't
+/// otherwise take, which gets its native extension, as on install.
+/// Refuses up front, before touching anything, if `to` can't take the game
+/// or already has a file by one of these names.
+pub fn move_game(entry: &GameEntry, from: &SystemDef, to: &SystemDef) -> Result<Vec<PathBuf>> {
+    move_game_into(entry, from, to, &roms_root().join(to.folder))
+}
+
+fn move_game_into(entry: &GameEntry, from: &SystemDef, to: &SystemDef, target_dir: &Path) -> Result<Vec<PathBuf>> {
+    let representative = crate::detect::representative(from, entry)
+        .ok_or_else(|| anyhow!("no ROM file recorded for '{}'", entry.name))?;
+    let ext = ext_lower(&representative);
+    let mut rename = None;
+    if !to.extensions.contains(&ext.as_str()) {
+        match crate::detect::cartridge(&representative) {
+            Some((found, native)) if found.id == to.id && entry.files.len() == 1 => {
+                rename = Some(format!("{}{native}", stem_string(&representative)));
+            }
+            _ => return Err(anyhow!("{} doesn't take '{ext}' files", to.display_name)),
+        }
+    }
+    let moves: Vec<(&PathBuf, PathBuf)> = entry
+        .files
+        .iter()
+        .map(|f| {
+            let name = rename.clone().unwrap_or_else(|| f.file_name().unwrap_or_default().to_string_lossy().to_string());
+            (f, target_dir.join(name))
+        })
+        .collect();
+    if let Some((_, taken)) = moves.iter().find(|(_, dest)| dest.exists()) {
+        return Err(anyhow!(
+            "~/RetroPie/roms/{} already has a file named '{}'",
+            to.folder,
+            taken.file_name().unwrap_or_default().to_string_lossy()
+        ));
+    }
+    fs::create_dir_all(target_dir)?;
+    let mut moved = Vec::new();
+    for (src, dest) in moves {
+        // rename can't cross filesystems (e.g. roms on a USB stick).
+        fs::rename(src, &dest).or_else(|_| fs::copy(src, &dest).and_then(|_| fs::remove_file(src)))?;
+        moved.push(dest);
+    }
+    Ok(moved)
+}
+
 // ---------------------------------------------------------------------------
 // Install
 // ---------------------------------------------------------------------------
@@ -179,32 +294,57 @@ fn unique_dest(target_dir: &Path, filename: &str) -> PathBuf {
     }
 }
 
+/// What an install put on disk: a human-readable summary for the status
+/// line, plus the exact files written so they can be scraped afterwards.
+#[derive(Debug, Clone)]
+pub struct Installed {
+    pub summary: String,
+    pub files: Vec<PathBuf>,
+}
+
 /// Install a single downloaded file for `system`. Zips are extracted (or
 /// copied as-is if they don't contain a matching rom); anything else is
 /// copied verbatim if its extension is accepted.
-pub fn install_file(src: &Path, system: &SystemDef) -> Result<String> {
-    let target_dir = ensure_system_dir(system)?;
+pub fn install_file(src: &Path, system: &SystemDef) -> Result<Installed> {
+    install_file_into(src, system, &ensure_system_dir(system)?)
+}
+
+fn install_file_into(src: &Path, system: &SystemDef, target_dir: &Path) -> Result<Installed> {
+    let target_dir = target_dir.to_path_buf();
     let ext = ext_lower(src);
 
     if ext == ".zip" && system.extensions.contains(&".zip") {
         return install_zip(src, &target_dir, system);
     }
 
-    if !system.extensions.contains(&ext.as_str()) {
-        return Err(anyhow!(
-            "'{ext}' isn't a supported extension for {}",
-            system.display_name
-        ));
-    }
-
-    let file_name = src
+    let mut file_name = src
         .file_name()
         .ok_or_else(|| anyhow!("source has no filename"))?
         .to_string_lossy()
         .to_string();
+    if !system.extensions.contains(&ext.as_str()) {
+        // A cartridge dump under a generic name (an N64 game as .bin) is
+        // still welcome once its header proves it's for this system; it
+        // just gets the extension the emulator looks for.
+        match crate::detect::cartridge(src) {
+            Some((found, native)) if found.id == system.id => {
+                file_name = format!("{}{native}", stem_string(src));
+            }
+            _ => {
+                return Err(anyhow!(
+                    "'{ext}' isn't a supported extension for {}",
+                    system.display_name
+                ))
+            }
+        }
+    }
+
     let dest = unique_dest(&target_dir, &file_name);
     fs::copy(src, &dest)?;
-    Ok(format!("copied -> {}", dest.file_name().unwrap().to_string_lossy()))
+    Ok(Installed {
+        summary: format!("copied -> {}", dest.file_name().unwrap().to_string_lossy()),
+        files: vec![dest],
+    })
 }
 
 fn rom_exts_for(system: &SystemDef) -> Vec<&'static str> {
@@ -274,7 +414,7 @@ fn extract_zip(src: &Path, tmp_dir: &Path) -> Result<()> {
     }
 }
 
-fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<String> {
+fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Installed> {
     let rom_exts = rom_exts_for(system);
 
     // Arcade-style systems: the zip *is* the rom, nothing to extract.
@@ -282,7 +422,10 @@ fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Stri
         let file_name = src.file_name().unwrap().to_string_lossy().to_string();
         let dest = unique_dest(target_dir, &file_name);
         fs::copy(src, &dest)?;
-        return Ok(format!("copied as-is -> {}", dest.file_name().unwrap().to_string_lossy()));
+        return Ok(Installed {
+            summary: format!("copied as-is -> {}", dest.file_name().unwrap().to_string_lossy()),
+            files: vec![dest],
+        });
     }
 
     let tmp_dir = tempfile::Builder::new().prefix("retropie-rom-manager-").tempdir()?;
@@ -297,19 +440,29 @@ fn install_zip(src: &Path, target_dir: &Path, system: &SystemDef) -> Result<Stri
         let file_name = entry.file_name().unwrap().to_string_lossy().to_string();
         let dest = unique_dest(target_dir, &file_name);
         fs::rename(&entry, &dest).or_else(|_| fs::copy(&entry, &dest).map(|_| ()))?;
-        moved.push(dest.file_name().unwrap().to_string_lossy().to_string());
+        moved.push(dest);
     }
 
     if moved.is_empty() {
         let file_name = src.file_name().unwrap().to_string_lossy().to_string();
         let dest = unique_dest(target_dir, &file_name);
         fs::copy(src, &dest)?;
-        return Ok(format!(
-            "no matching roms inside, copied as-is -> {}",
-            dest.file_name().unwrap().to_string_lossy()
-        ));
+        return Ok(Installed {
+            summary: format!(
+                "no matching roms inside, copied as-is -> {}",
+                dest.file_name().unwrap().to_string_lossy()
+            ),
+            files: vec![dest],
+        });
     }
-    Ok(format!("extracted {} file(s) -> {}", moved.len(), moved.join(", ")))
+    let names: Vec<String> = moved
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+        .collect();
+    Ok(Installed {
+        summary: format!("extracted {} file(s) -> {}", moved.len(), names.join(", ")),
+        files: moved,
+    })
 }
 
 fn walk_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
@@ -446,6 +599,94 @@ mod tests {
 
         assert_eq!(group.len(), 1);
         assert_eq!(group[0].files.len(), 3);
+    }
+
+    #[test]
+    fn identified_cartridge_gets_its_native_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut rom = vec![0u8; 0x1000];
+        rom[..4].copy_from_slice(b"\x37\x80\x40\x12");
+        let src = tmp.path().join("Mario.bin");
+        fs::write(&src, &rom).unwrap();
+        let target = tmp.path().join("n64");
+        fs::create_dir_all(&target).unwrap();
+
+        let n64 = *crate::systems::by_id("n64").unwrap();
+        let done = install_file_into(&src, &n64, &target).unwrap();
+        assert_eq!(done.files, vec![target.join("Mario.v64")]);
+
+        // Unidentified files with an unsupported extension are still refused.
+        fs::write(tmp.path().join("notes.bin"), b"hello").unwrap();
+        assert!(install_file_into(&tmp.path().join("notes.bin"), &n64, &target).is_err());
+    }
+
+    #[test]
+    fn move_keeps_names_and_refuses_collisions_or_wrong_formats() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (from_dir, to_dir) = (tmp.path().join("megadrive"), tmp.path().join("psx"));
+        fs::create_dir_all(&from_dir).unwrap();
+        touch(&from_dir, "FF.cue");
+        touch(&from_dir, "FF (Track 1).bin");
+        let genesis = *crate::systems::by_id("megadrive").unwrap();
+        let game = GameEntry {
+            name: "FF".into(),
+            files: vec![from_dir.join("FF (Track 1).bin"), from_dir.join("FF.cue")],
+        };
+
+        // Genesis can't take a .gba, so nothing moves.
+        let gba = *crate::systems::by_id("gba").unwrap();
+        assert!(move_game_into(&game, &genesis, &gba, &tmp.path().join("gba")).is_err());
+
+        // A name already taken in the target: refuse before touching anything.
+        fs::create_dir_all(&to_dir).unwrap();
+        touch(&to_dir, "FF.cue");
+        assert!(move_game_into(&game, &genesis, &psx_system(), &to_dir).is_err());
+        assert!(from_dir.join("FF (Track 1).bin").exists());
+
+        fs::remove_file(to_dir.join("FF.cue")).unwrap();
+        let moved = move_game_into(&game, &genesis, &psx_system(), &to_dir).unwrap();
+        assert_eq!(moved.len(), 2);
+        assert!(to_dir.join("FF (Track 1).bin").exists() && to_dir.join("FF.cue").exists());
+        assert_eq!(fs::read_dir(&from_dir).unwrap().count(), 0);
+
+        // An N64 dump named .bin is moved as .z64, since N64 doesn't take .bin.
+        let mut rom = vec![0u8; 0x1000];
+        rom[..4].copy_from_slice(b"\x80\x37\x12\x40");
+        fs::write(from_dir.join("Mario.bin"), &rom).unwrap();
+        let mario = GameEntry { name: "Mario".into(), files: vec![from_dir.join("Mario.bin")] };
+        let n64 = *crate::systems::by_id("n64").unwrap();
+        let n64_dir = tmp.path().join("n64");
+        assert_eq!(move_game_into(&mario, &genesis, &n64, &n64_dir).unwrap(), vec![n64_dir.join("Mario.z64")]);
+    }
+
+    fn entry(name: &str) -> GameEntry {
+        GameEntry { name: name.into(), files: Vec::new() }
+    }
+
+    #[test]
+    fn splits_title_from_no_intro_tags() {
+        let (title, tags) = entry("Metal Gear Solid (USA) (Disc 1) (Rev 1)").title_and_tags();
+        assert_eq!(title, "Metal Gear Solid");
+        assert_eq!(tags, ["USA", "Disc 1", "Rev 1"]);
+        assert_eq!(entry("FIFA Soccer 2005").title_and_tags(), ("FIFA Soccer 2005".into(), vec![]));
+        assert_eq!(entry("(Unl)").title_and_tags().0, "(Unl)");
+    }
+
+    #[test]
+    fn monograms_skip_articles_and_punctuation() {
+        assert_eq!(entry("Metal Gear Solid (USA)").monogram(), "MG");
+        assert_eq!(entry("The Legend of Zelda - Ocarina of Time (USA)").monogram(), "LO");
+        assert_eq!(entry("Doom (USA) (Rev 1)").monogram(), "DO");
+        assert_eq!(entry("Tekken 3 (USA)").monogram(), "T3");
+    }
+
+    #[test]
+    fn formats_sizes_like_a_file_manager() {
+        assert_eq!(format_size(344), "344 B");
+        assert_eq!(format_size(80 * 1024), "80 KB");
+        assert_eq!(format_size(2 * 1024 * 1024), "2.0 MB");
+        assert_eq!(format_size(449 * 1024 * 1024), "449 MB");
+        assert_eq!(format_size(3 * 1024 * 1024 * 1024 / 2), "1.5 GB");
     }
 
     /// Test-only helper that runs the same grouping logic as

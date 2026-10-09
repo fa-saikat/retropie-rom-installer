@@ -1,32 +1,45 @@
 mod assets;
+mod detect;
 mod library;
+mod scraper;
+mod skyscraper_setup;
 mod systems;
 mod theme;
 mod ui;
 
-use gpui::{
-    px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
-};
+use gpui_kit::component::{Theme, ThemeMode};
+use gpui_kit::{px, size, AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions};
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1100.), px(720.)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                // Keep the sidebar + card grid usable — below this the
-                // layout starts wrapping badly.
-                window_min_size: Some(size(px(1024.), px(768.))),
+    gpui_kit::application()
+        .with_assets(assets::AppAssets)
+        .run(|cx| {
+            gpui_kit::init(cx);
+            Theme::change(ThemeMode::Dark, None, cx);
+            // We keep the native title bar, so sheets can use the full height.
+            Theme::update(cx, |t| t.sheet.margin_top = px(0.));
+            cx.bind_keys([KeyBinding::new("/", ui::FocusSearch, Some(ui::KEY_CONTEXT))]);
+
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1280.), px(800.)),
+                    cx,
+                ))),
+                // Below this the sidebar + card grid start wrapping badly.
+                window_min_size: Some(size(px(1024.), px(680.))),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("ROM manager".into()),
+                    title: Some("ROM Manager".into()),
                     ..Default::default()
                 }),
+                app_id: Some("retropie-rom-manager".into()),
                 ..Default::default()
-            },
-            |window, cx| cx.new(|cx| ui::RootView::new(window, cx)),
-        )
-        .expect("failed to open window");
+            };
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| ui::RootView::new(window, cx))
+            })
+            .expect("failed to open window");
 
-        cx.activate(true);
-    });
+            cx.activate(true);
+        });
 }
