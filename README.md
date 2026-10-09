@@ -9,7 +9,9 @@ A fast, simple desktop GUI for installing and uninstalling RetroPie ROMs on Linu
 
 ## Features
 
-- **Six systems out of the box** — Arcade (MAME), Dreamcast, Game Boy Advance, Sega Genesis / MD, PlayStation, Nintendo 64, each with its own icon, accent, and accepted file types.
+- **Every RetroPie system** — starts with Arcade (MAME), Dreamcast, Game Boy Advance, Sega Genesis / MD, PlayStation and Nintendo 64; **Add emulator** brings in any of 37 RetroPie systems (NES, SNES, Game Boy, PS2, GameCube, Wii, Neo Geo, ZX Spectrum…), and removing one asks before deleting its games.
+- **Catches ROMs in the wrong system** — files are identified by their contents, not just their extension, so a Game Boy game dropped on Genesis is flagged and moved where it belongs (adding that system if you don't have it yet).
+- **Play without EmulationStation** — starts a game with the emulator RetroPie is set up to use for that system.
 - **Install from downloads** — drop ROM files onto the window or pick them in the native file picker; matching files are copied straight into `~/RetroPie/roms/<system>`, zips are extracted automatically (standard zips in-process, tricky ones via `unzip`/`7z` fallbacks).
 - **Multi-file games collapse into one entry** — a PSX game spread across a `.cue`, six track `.bin`s, and a generated `.srm` shows up once, as `Doom (USA) (Rev 1)`.
 - **Uninstall removes everything** — deleting that entry removes every file recorded for it, so no orphaned track bins or save files linger.

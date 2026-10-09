@@ -1,5 +1,7 @@
 mod assets;
+mod config;
 mod detect;
+mod launch;
 mod library;
 mod scraper;
 mod skyscraper_setup;

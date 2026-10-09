@@ -22,7 +22,7 @@ use std::path::PathBuf;
 // ones this app uses. Unlisted names fall through to the default bundle.
 gpui_kit::assets::icon_assets!(ExtraIcons, [
     Trash, LayoutGrid, List, ImageDown, ImageOff, Gamepad2, Upload, X, VideoOff, Files, Download,
-    FolderInput, TriangleAlert, ArrowRight,
+    FolderInput, TriangleAlert, ArrowRight, Play,
 ]);
 
 /// The app's asset source: our extra icons first, then GPUI Kit's defaults.
@@ -85,4 +85,11 @@ pub fn system_icon(system_id: &str, generic_icon: &str) -> Option<PathBuf> {
         .iter()
         .map(|stem| root.join("icons").join(format!("{stem}.svg")))
         .find(|candidate| candidate.is_file())
+}
+
+/// Product photo for a system (`systems/<photo>.jpg`), shown in the
+/// "Add emulator" picker. See `assets/systems/CREDITS.md` for sources.
+pub fn system_photo(system: &crate::systems::SystemDef) -> Option<PathBuf> {
+    let path = assets_root()?.join("systems").join(format!("{}.jpg", system.photo));
+    path.is_file().then_some(path)
 }
