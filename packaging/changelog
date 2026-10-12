@@ -1,3 +1,13 @@
+retropie-rom-manager (2.0.0-1) unstable; urgency=low
+
+  * Add emulator management, wrong-system suggestions and Play
+  * Detect ROMs installed to the wrong system
+  * release: bump version
+  * Add Shelf design system and HTML mockup
+  * Port UI to GPUI Kit, add Skyscraper scraping and in-app install
+
+ -- FA Saikat <fahimabrar.saikat@gmail.com>  Mon, 12 Oct 2026 13:52:49 +0600
+
 retropie-rom-manager (1.1.0-1) unstable; urgency=low
 
   * feat: Make retropie-rom-manager 1.0.0 a reality
