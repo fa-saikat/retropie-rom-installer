@@ -244,42 +244,70 @@ impl RootView {
                 cx,
             ));
         }
+        if let Some(game) = &self.running {
+            return Some(Self::notice_row(
+                theme::accent(self.selected.accent),
+                Icon::new(IconName::Play),
+                format!("Playing {}", game.title),
+                format!("Running in {}. Quit the emulator to come back here.", game.emulator),
+                None,
+                cx,
+            ));
+        }
         // A game in the wrong folder won't even start, so this outranks
         // anything about artwork.
         let misplaced = self.misplaced_games();
         if !misplaced.is_empty() {
             let system = self.selected;
             let one = misplaced.len() == 1;
+            let new = misplaced.iter().filter(|m| !self.is_enabled(m.to)).count();
             let (lead, label) = match misplaced.as_slice() {
-                [(game, to)] => (
-                    format!("“{}” looks like a {} game", game.title_and_tags().0, to.display_name),
-                    format!("Move to {}", to.short_name),
+                [m] => (
+                    format!("“{}” looks like a {} game", m.entry.title_and_tags().0, m.to.display_name),
+                    if new > 0 { format!("Add {} & move", m.to.short_name) } else { format!("Move to {}", m.to.short_name) },
                 ),
                 _ => (
                     format!("{} look like they're for other systems", plural(misplaced.len(), "game")),
                     format!("Move {}", misplaced.len()),
                 ),
             };
-            return Some(Self::notice_row(
-                t.danger,
-                Icon::new(IconName::TriangleAlert),
-                lead,
-                format!(
-                    "EmulationStation starts everything in roms/{} with the {} emulator, so {}. Move {} where {}, or delete {}.",
+            let body = match misplaced.as_slice() {
+                [m] if new > 0 => format!(
+                    "It won't run with the {} emulator. {} isn't in your list yet: add it and the game moves there, or delete the game.",
+                    system.display_name, m.to.display_name
+                ),
+                _ => format!(
+                    "EmulationStation starts everything in roms/{} with the {} emulator, so {}. Move {} where {}{}, or delete {}.",
                     system.folder,
                     system.display_name,
                     if one { "it won't run" } else { "they won't run" },
                     if one { "it" } else { "them" },
                     if one { "it belongs" } else { "they belong" },
+                    if new > 0 { " (systems you don't have yet are added)" } else { "" },
                     if one { "it" } else { "them" },
                 ),
+            };
+            // One game moves straight away (nothing is lost); several get
+            // a confirmation listing where each goes.
+            let single = match misplaced.as_slice() {
+                [m] => Some((m.entry.clone(), m.to)),
+                _ => None,
+            };
+            return Some(Self::notice_row(
+                t.danger,
+                Icon::new(IconName::TriangleAlert),
+                lead,
+                body,
                 Some(
                     Button::new("move-misplaced")
                         .primary()
                         .small()
                         .icon(Icon::new(IconName::FolderInput))
                         .label(label)
-                        .on_click(cx.listener(|this, _, window, cx| details::confirm_move_misplaced(this, window, cx))),
+                        .on_click(cx.listener(move |this, _, window, cx| match single.clone() {
+                            Some((entry, to)) => this.move_game(entry, to, window, cx),
+                            None => details::confirm_move_misplaced(this, window, cx),
+                        })),
                 ),
                 cx,
             ));
@@ -551,6 +579,10 @@ impl RootView {
         };
         let placeholder = self.art_placeholder(entry, cx);
 
+        let misplaced = self.misplaced_as(entry);
+        // A misplaced game would start in the wrong emulator.
+        let can_play = self.can_run() && misplaced.is_none();
+
         let art = div()
             .relative()
             .h(px(ART_HEIGHT))
@@ -598,6 +630,23 @@ impl RootView {
                     .bg(t.background)
                     .invisible()
                     .group_hover("card", |s| s.visible())
+                    .flex()
+                    .gap_1()
+                    .when(can_play, |overlay| {
+                        let entry = entry.clone();
+                        overlay.child(
+                            Button::new(("play", index))
+                                .primary()
+                                .small()
+                                .icon(Icon::new(IconName::Play))
+                                .tooltip("Play")
+                                .disabled(self.running.is_some())
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.run_game(&entry, window, cx);
+                                })),
+                        )
+                    })
                     .child({
                         let entry = entry.clone();
                         Button::new(("delete", index))
@@ -613,7 +662,6 @@ impl RootView {
             );
 
         // Row 1: what the game is. Row 2: rating (if scraped) and file count.
-        let misplaced = self.misplaced_as(entry);
         let (chips, rating) = match status {
             ScrapeStatus::Scraped(m) => (
                 h_flex()
@@ -685,7 +733,7 @@ impl RootView {
             .child(div().flex_1().child("Title"))
             .child(div().w(px(200.)).child("Details"))
             .child(div().w(px(56.)).child("Files"))
-            .child(div().w(px(32.)));
+            .child(div().w(px(64.)));
 
         let rows = games.iter().enumerate().map(|(i, entry)| {
             let status = self.status_of(entry);
@@ -709,6 +757,8 @@ impl RootView {
             let details_cell = h_flex().gap_1().children(self.misplaced_as(entry).map(wrong_system_tag)).child(details_cell);
             let open_entry = (*entry).clone();
             let delete_entry = (*entry).clone();
+            let play_entry = (*entry).clone();
+            let can_play = self.can_run() && self.misplaced_as(entry).is_none();
             h_flex()
                 .id(("row", i))
                 .h(px(54.))
@@ -746,7 +796,20 @@ impl RootView {
                 .child(div().w(px(200.)).child(details_cell))
                 .child(div().w(px(56.)).text_sm().text_color(t.muted_foreground).child(entry.files.len().to_string()))
                 .child(
-                    div().w(px(32.)).child(
+                    h_flex().w(px(64.)).justify_end().gap_1()
+                    .when(can_play, |cell| cell.child(
+                        Button::new(("list-play", i))
+                            .ghost()
+                            .small()
+                            .icon(Icon::new(IconName::Play))
+                            .tooltip("Play")
+                            .disabled(self.running.is_some())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.run_game(&play_entry, window, cx);
+                            })),
+                    ))
+                    .child(
                         Button::new(("list-delete", i))
                             .ghost()
                             .small()

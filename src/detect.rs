@@ -4,13 +4,17 @@
 //!
 //! Every check here is a *positive* identification from a fixed signature:
 //!
-//! - N64: byte-order marker in the first 4 bytes (z64 / v64 / n64 dumps).
-//! - GBA: fixed value `0x96` at `0xB2` plus the start of the Nintendo logo.
-//! - Genesis: `"SEGA"` at `0x100`, or the SMD interleaved-dump header.
-//! - PlayStation: ISO9660 volume descriptor in sector 16 whose system id
-//!   is `"PLAYSTATION"` (cooked 2048-byte or raw 2352-byte sectors).
-//! - Dreamcast: `"SEGA SEGAKATANA"` IP.BIN header, or a CHD with GD-ROM
-//!   track metadata.
+//! - Cartridges: N64 byte-order marker; the Nintendo logo in GB/GBC/GBA
+//!   headers; iNES / FDS headers; SNES internal header (checksum pair, map
+//!   mode, printable title); Genesis / 32X `"SEGA"` header or SMD copier
+//!   header; `"TMR SEGA"` (Master System / Game Gear, told apart by region
+//!   code); Lynx, Atari 7800, Neo Geo Pocket and Vectrex headers.
+//! - Discs: ISO9660 volume descriptor whose system id is `"PLAYSTATION"`
+//!   (PS1, or PS2 when the volume is DVD-sized) or `"PSP GAME"`; Sega
+//!   IP.BIN (`SEGA SEGAKATANA` Dreamcast, `SEGADISCSYSTEM` Sega CD);
+//!   GameCube / Wii disc magic, including WBFS, RVZ/WIA and GCZ containers;
+//!   CHD GD-ROM metadata.
+//! - Disk images: Amstrad CPC `.dsk` headers.
 //!
 //! Anything that doesn't match is `None` ("don't know"), never a guess, so
 //! callers only warn when a file clearly belongs somewhere else. Arcade has
@@ -28,9 +32,10 @@ use std::time::SystemTime;
 use crate::library::{ext_lower, GameEntry};
 use crate::systems::{self, SystemDef, SYSTEMS};
 
-/// Enough to reach the PlayStation volume descriptor in a raw image:
-/// sector 16 × 2352 bytes + 24 bytes of sync/header/subheader + 16.
-const HEAD_LEN: u64 = 40 * 1024;
+/// Enough to reach a HiROM SNES header behind a 512-byte copier header
+/// (0x200 + 0xFFC0 + 0x40), which also covers the PlayStation volume
+/// descriptor in a raw image (sector 16 × 2352 + 24).
+const HEAD_LEN: u64 = 0x200 + 0x10000;
 
 /// How many files a disc sheet or multi-file zip gets to point us at
 /// before we give up. Keeps a scan of a big library cheap.
@@ -98,6 +103,10 @@ pub fn cartridge(path: &Path) -> Option<(&'static SystemDef, &'static str)> {
     Some((systems::by_id(id)?, ext))
 }
 
+fn be32(buf: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(buf.get(offset..offset + 4)?.try_into().ok()?))
+}
+
 fn sniff_disc(buf: &[u8]) -> Option<&'static str> {
     // Sega disc header (IP.BIN) sits at 0 in a cooked image, after the
     // 16-byte sync + header in a raw one.
@@ -105,14 +114,52 @@ fn sniff_disc(buf: &[u8]) -> Option<&'static str> {
         if at(buf, base, b"SEGA SEGAKATANA") {
             return Some("dreamcast");
         }
+        if at(buf, base, b"SEGADISCSYSTEM") {
+            return Some("segacd");
+        }
     }
     // ISO9660 primary volume descriptor in sector 16: cooked 2048-byte
     // sectors, raw Mode 1 (16-byte prefix) and raw Mode 2 XA (24-byte
     // prefix, what PlayStation discs use).
     for offset in [16 * 2048, 16 * 2352 + 16, 16 * 2352 + 24] {
-        if at(buf, offset, b"\x01CD001") && at(buf, offset + 8, b"PLAYSTATION") {
-            return Some("psx");
+        if !at(buf, offset, b"\x01CD001") {
+            continue;
         }
+        if at(buf, offset + 8, b"PLAYSTATION") {
+            // Same system id on PS1 and PS2. A CD holds at most ~360,000
+            // sectors, so anything bigger is a PS2 DVD.
+            let sectors = buf
+                .get(offset + 80..offset + 84)
+                .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+                .unwrap_or(0);
+            return Some(if sectors > 400_000 { "ps2" } else { "psx" });
+        }
+        if at(buf, offset + 8, b"PSP GAME") {
+            return Some("psp");
+        }
+    }
+    // GameCube / Wii disc header magic, raw or inside a container.
+    if be32(buf, 0x1C) == Some(0xC233_9F3D) {
+        return Some("gc");
+    }
+    if be32(buf, 0x18) == Some(0x5D1C_9EA3) || at(buf, 0, b"WBFS") {
+        return Some("wii");
+    }
+    // RVZ / WIA: disc type right after the 0x48-byte first header.
+    if at(buf, 0, b"RVZ\x01") || at(buf, 0, b"WIA\x01") {
+        return match be32(buf, 0x48) {
+            Some(1) => Some("gc"),
+            Some(2) => Some("wii"),
+            _ => None,
+        };
+    }
+    // GCZ: little-endian magic, then sub-type 0 = GameCube, 1 = Wii.
+    if at(buf, 0, &0xB10B_C001u32.to_le_bytes()) {
+        return match buf.get(4..8).map(|b| u32::from_le_bytes(b.try_into().unwrap())) {
+            Some(0) => Some("gc"),
+            Some(1) => Some("wii"),
+            _ => None,
+        };
     }
     None
 }
@@ -136,12 +183,78 @@ fn sniff_cart(buf: &[u8]) -> Option<(&'static str, &'static str)> {
     if buf.get(0xB2) == Some(&0x96) && at(buf, 0x04, b"\x24\xFF\xAE\x51\x69\x9A\xA2\x21") {
         return Some(("gba", ".gba"));
     }
+    // Game Boy logo at 0x104; the CGB flag at 0x143 says Color-capable.
+    if at(buf, 0x104, b"\xCE\xED\x66\x66\xCC\x0D\x00\x0B") {
+        return Some(match buf.get(0x143) {
+            Some(0x80) | Some(0xC0) => ("gbc", ".gbc"),
+            _ => ("gb", ".gb"),
+        });
+    }
+    if at(buf, 0, b"NES\x1A") {
+        return Some(("nes", ".nes"));
+    }
+    if at(buf, 0, b"FDS\x1A") || at(buf, 0, b"\x01*NINTENDO-HVC*") {
+        return Some(("fds", ".fds"));
+    }
+    if at(buf, 0, b"LYNX") {
+        return Some(("atarilynx", ".lnx"));
+    }
+    if at(buf, 1, b"ATARI7800") {
+        return Some(("atari7800", ".a78"));
+    }
+    if at(buf, 0, b"COPYRIGHT BY SNK CORPORATION") || at(buf, 0, b" LICENSED BY SNK CORPORATION") {
+        return Some(if buf.get(0x23) == Some(&0x10) { ("ngpc", ".ngc") } else { ("ngp", ".ngp") });
+    }
+    if at(buf, 0, b"g GCE") {
+        return Some(("vectrex", ".vec"));
+    }
+    if at(buf, 0, b"MV - CPC") || at(buf, 0, b"EXTENDED CPC DSK") {
+        return Some(("amstradcpc", ".dsk"));
+    }
+    if at(buf, 0x100, b"SEGA 32X") {
+        return Some(("sega32x", ".32x"));
+    }
     if at(buf, 0x100, b"SEGA") || at(buf, 0x101, b"SEGA") {
         return Some(("megadrive", ".md"));
     }
     // .smd: 512-byte copier header, bytes 8–10 are 0xAA 0xBB 0x06.
     if buf.len() > 0x200 && at(buf, 8, b"\xAA\xBB\x06") {
         return Some(("megadrive", ".smd"));
+    }
+    // "TMR SEGA" near the end of the first 8/16/32 KB; the high nibble of
+    // the region byte after it is 3–4 on a Master System, 5–7 on a Game Gear.
+    for base in [0x7FF0, 0x3FF0, 0x1FF0] {
+        if at(buf, base, b"TMR SEGA") {
+            return match buf.get(base + 0xF).map(|b| b >> 4) {
+                Some(3 | 4) => Some(("mastersystem", ".sms")),
+                Some(5..=7) => Some(("gamegear", ".gg")),
+                _ => None,
+            };
+        }
+    }
+    if let Some(ext) = snes_header(buf) {
+        return Some(("snes", ext));
+    }
+    None
+}
+
+/// SNES internal header at 0x7FC0 (LoROM) or 0xFFC0 (HiROM), optionally
+/// behind a 512-byte copier header. Checksum + complement must add up to
+/// 0xFFFF, the map mode must be a real one and the title printable, which
+/// together rule out chance matches in arbitrary data.
+fn snes_header(buf: &[u8]) -> Option<&'static str> {
+    for (copier, ext) in [(0, ".sfc"), (0x200, ".smc")] {
+        for base in [0x7FC0, 0xFFC0] {
+            let Some(header) = buf.get(copier + base..copier + base + 0x20) else { continue };
+            let title_ok = header[..21].iter().all(|b| (0x20..0x7F).contains(b))
+                && header[..21].iter().any(|b| *b != b' ');
+            let map_ok = matches!(header[0x15] & 0xEF, 0x20 | 0x21 | 0x22 | 0x23 | 0x25 | 0x2A);
+            let complement = u16::from_le_bytes([header[0x1C], header[0x1D]]);
+            let checksum = u16::from_le_bytes([header[0x1E], header[0x1F]]);
+            if title_ok && map_ok && checksum.wrapping_add(complement) == 0xFFFF {
+                return Some(ext);
+            }
+        }
     }
     None
 }
@@ -426,6 +539,80 @@ mod tests {
     }
 
     #[test]
+    fn more_cartridge_headers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        let mut gb = vec![0u8; 0x8000];
+        gb[0x104..0x10C].copy_from_slice(b"\xCE\xED\x66\x66\xCC\x0D\x00\x0B");
+        assert_eq!(id(&write(d, "tetris.bin", &gb)), Some("gb"));
+        gb[0x143] = 0x80;
+        assert_eq!(id(&write(d, "zelda.bin", &gb)), Some("gbc"));
+
+        let mut nes = vec![0u8; 0x4010];
+        nes[..4].copy_from_slice(b"NES\x1A");
+        assert_eq!(id(&write(d, "smb.bin", &nes)), Some("nes"));
+
+        let mut sms = vec![0u8; 0x8000];
+        sms[0x7FF0..0x7FF8].copy_from_slice(b"TMR SEGA");
+        sms[0x7FFF] = 0x4C;
+        assert_eq!(id(&write(d, "alex.bin", &sms)), Some("mastersystem"));
+        sms[0x7FFF] = 0x6C;
+        assert_eq!(id(&write(d, "sonic-gg.bin", &sms)), Some("gamegear"));
+
+        let mut x32 = genesis();
+        x32[0x100..0x108].copy_from_slice(b"SEGA 32X");
+        assert_eq!(id(&write(d, "knuckles.bin", &x32)), Some("sega32x"));
+    }
+
+    fn snes(copier: bool) -> Vec<u8> {
+        let off = if copier { 0x200 } else { 0 };
+        let mut rom = vec![0u8; off + 0x8000];
+        let h = off + 0x7FC0;
+        rom[h..h + 21].copy_from_slice(b"SUPER MARIOWORLD     ");
+        rom[h + 0x15] = 0x20;
+        rom[h + 0x1C..h + 0x1E].copy_from_slice(&0x5F5Fu16.to_le_bytes());
+        rom[h + 0x1E..h + 0x20].copy_from_slice(&0xA0A0u16.to_le_bytes());
+        rom
+    }
+
+    #[test]
+    fn snes_internal_header() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        assert_eq!(id(&write(d, "smw.bin", &snes(false))), Some("snes"));
+        assert_eq!(cartridge(&write(d, "smw2.bin", &snes(true))).map(|(s, e)| (s.id, e)), Some(("snes", ".smc")));
+        // Checksum off by one: not a header.
+        let mut bad = snes(false);
+        bad[0x7FDE] ^= 1;
+        assert_eq!(id(&write(d, "noise.bin", &bad)), None);
+    }
+
+    #[test]
+    fn disc_consoles() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        let mut gc = vec![0u8; 0x400];
+        gc[0x1C..0x20].copy_from_slice(&0xC2339F3Du32.to_be_bytes());
+        assert_eq!(id(&write(d, "melee.iso", &gc)), Some("gc"));
+        let mut rvz = vec![0u8; 0x100];
+        rvz[..4].copy_from_slice(b"RVZ\x01");
+        rvz[0x48..0x4C].copy_from_slice(&2u32.to_be_bytes());
+        assert_eq!(id(&write(d, "mkwii.rvz", &rvz)), Some("wii"));
+
+        // A cooked PlayStation ISO, CD-sized vs DVD-sized.
+        let mut iso = vec![0u8; 17 * 2048];
+        let pvd = 16 * 2048;
+        iso[pvd..pvd + 6].copy_from_slice(b"\x01CD001");
+        iso[pvd + 8..pvd + 19].copy_from_slice(b"PLAYSTATION");
+        iso[pvd + 80..pvd + 84].copy_from_slice(&300_000u32.to_le_bytes());
+        assert_eq!(id(&write(d, "ff7.iso", &iso)), Some("psx"));
+        iso[pvd + 80..pvd + 84].copy_from_slice(&2_000_000u32.to_le_bytes());
+        assert_eq!(id(&write(d, "ff10.iso", &iso)), Some("ps2"));
+        iso[pvd + 8..pvd + 19].copy_from_slice(b"PSP GAME   ");
+        assert_eq!(id(&write(d, "lumines.iso", &iso)), Some("psp"));
+    }
+
+    #[test]
     fn unknown_stays_unknown() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
@@ -434,7 +621,10 @@ mod tests {
         // Sega CD carries "SEGA" at 0x100 too; it must not read as Genesis.
         let mut segacd = genesis();
         segacd[..14].copy_from_slice(b"SEGADISCSYSTEM");
-        assert_eq!(id(&write(d, "scd.bin", &segacd)), None);
+        assert_eq!(id(&write(d, "scd.bin", &segacd)), Some("segacd"));
+        // Saturn isn't a system here at all.
+        segacd[..15].copy_from_slice(b"SEGA SEGASATURN");
+        assert_eq!(id(&write(d, "sat.bin", &segacd)), None);
         assert_eq!(id(&write(d, "set.7z", b"7z")), None);
     }
 
@@ -443,7 +633,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
         assert_eq!(id(&write(d, "garbage.gba", b"??")), Some("gba"));
-        assert_eq!(id(&write(d, "x.pbp", b"\0PBP")), Some("psx"));
+        assert_eq!(id(&write(d, "x.sfc", b"??")), Some("snes"));
+        // Shared by PS1 and PSP now, so no longer enough on its own.
+        assert_eq!(id(&write(d, "x.pbp", b"\0PBP")), None);
     }
 
     #[test]

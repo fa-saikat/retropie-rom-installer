@@ -1,5 +1,5 @@
-//! Game details sheet, the delete / wrong-system confirmations and the
-//! About dialog.
+//! Game details sheet, the delete / wrong-system confirmations, the
+//! add / remove emulator dialogs and the About dialog.
 //!
 //! GPUI Kit re-runs a sheet/dialog builder on every render, so each one
 //! works from a snapshot taken when it opens and talks back to `RootView`
@@ -9,6 +9,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_kit::component::description_list::DescriptionList;
 use gpui_kit::component::dialog::AlertDialog;
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::rating::Rating;
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{h_flex, v_flex, ActiveTheme, Disableable, Icon, Sizable, WindowExt, StyledExt};
@@ -17,11 +18,13 @@ use gpui_kit::*;
 use std::path::PathBuf;
 
 use super::root::RootView;
-use super::sidebar::system_glyph;
+use super::sidebar::{system_glyph, system_tile};
+use crate::assets;
 use crate::detect;
 use crate::library::{self, GameEntry};
 use crate::scraper::{self, GameMeta, MediaState, ScrapeStatus};
-use crate::systems::SystemDef;
+use crate::systems::{SystemDef, MAKERS, SYSTEMS};
+use crate::theme;
 
 /// Owned copy of everything the sheet shows.
 #[derive(Clone)]
@@ -36,6 +39,12 @@ struct Snapshot {
     can_scrape: bool,
     /// The system this game's contents say it's really for.
     misplaced: Option<&'static SystemDef>,
+    /// ...and it isn't in the sidebar yet, so moving adds it.
+    move_adds: bool,
+    /// RetroPie has an emulator for this system.
+    can_run: bool,
+    /// Another game is already running.
+    running: bool,
 }
 
 pub(super) fn open_details(view: &mut RootView, entry: &GameEntry, window: &mut Window, cx: &mut Context<RootView>) {
@@ -59,7 +68,11 @@ pub(super) fn open_details(view: &mut RootView, entry: &GameEntry, window: &mut 
             let file = detect::representative(view.selected, entry)?;
             detect::detect(&file).filter(|found| found.id != view.selected.id)
         }),
+        move_adds: false,
+        can_run: view.can_run(),
+        running: view.running.is_some(),
     };
+    let snapshot = Snapshot { move_adds: snapshot.misplaced.is_some_and(|to| !view.is_enabled(to)), ..snapshot };
     let this = cx.entity().downgrade();
     window.open_sheet(cx, move |sheet, _, cx| {
         sheet
@@ -146,8 +159,11 @@ fn render_body(s: &Snapshot, cx: &App) -> impl IntoElement {
         gpui_kit::component::alert::Alert::warning(
             "misplaced",
             format!(
-                "It's in ~/RetroPie/roms/{}, so EmulationStation will try to start it with the {} emulator and it won't run. Move it to {}, or delete it.",
-                s.system.folder, s.system.display_name, other.display_name
+                "It's in ~/RetroPie/roms/{}, so EmulationStation will try to start it with the {} emulator and it won't run. Move it to {}{}, or delete it.",
+                s.system.folder,
+                s.system.display_name,
+                other.display_name,
+                if s.move_adds { " (it'll be added to your list)" } else { "" },
             ),
         )
         .title(format!("This looks like a {} game", other.display_name))
@@ -333,7 +349,15 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
     let scrape_entry = s.entry.clone();
     let delete_entry = s.entry.clone();
     let move_entry = s.entry.clone();
-    let (rescrape, delete, relocate) = (this.clone(), this.clone(), this);
+    let play_entry = s.entry.clone();
+    let (rescrape, delete, relocate, play) = (this.clone(), this.clone(), this.clone(), this);
+    let play_tooltip = if !s.can_run {
+        format!("RetroPie has no emulator set up for {}", s.system.display_name)
+    } else if s.running {
+        "Another game is running".to_string()
+    } else {
+        "Play without opening EmulationStation".to_string()
+    };
     h_flex()
         .w_full()
         .gap_2()
@@ -342,7 +366,7 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
                 .ghost()
                 .small()
                 .icon(Icon::new(IconName::FolderOpen))
-                .label("Show in folder")
+                .tooltip("Show in folder")
                 .on_click(move |_, _, cx| {
                     let _ = std::fs::create_dir_all(&folder);
                     cx.open_with_system(&folder);
@@ -362,18 +386,6 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
                     rescrape.update(cx, |view, cx| view.scrape_one(&scrape_entry, window, cx)).ok();
                 }),
         ))
-        .when_some(s.misplaced, |footer, to| {
-            footer.child(
-                Button::new("sheet-move")
-                    .primary()
-                    .small()
-                    .icon(Icon::new(IconName::FolderInput))
-                    .label(format!("Move to {}", to.short_name))
-                    .on_click(move |_, window, cx| {
-                        relocate.update(cx, |view, cx| view.move_game(move_entry.clone(), to, window, cx)).ok();
-                    }),
-            )
-        })
         .child(
             Button::new("sheet-delete")
                 .danger()
@@ -387,6 +399,31 @@ fn render_footer(s: &Snapshot, this: WeakEntity<RootView>) -> impl IntoElement {
                         .ok();
                 }),
         )
+        .map(|footer| match s.misplaced {
+            // It won't run here, so moving it is the main action.
+            Some(to) => footer.child(
+                Button::new("sheet-move")
+                    .primary()
+                    .small()
+                    .icon(Icon::new(IconName::FolderInput))
+                    .label(if s.move_adds { format!("Add {} & move", to.short_name) } else { format!("Move to {}", to.short_name) })
+                    .on_click(move |_, window, cx| {
+                        relocate.update(cx, |view, cx| view.move_game(move_entry.clone(), to, window, cx)).ok();
+                    }),
+            ),
+            None => footer.child(
+                Button::new("sheet-play")
+                    .primary()
+                    .small()
+                    .icon(Icon::new(IconName::Play))
+                    .label("Play")
+                    .tooltip(play_tooltip.clone())
+                    .disabled(!s.can_run || s.running)
+                    .on_click(move |_, window, cx| {
+                        play.update(cx, |view, cx| view.run_game(&play_entry, window, cx)).ok();
+                    }),
+            ),
+        })
 }
 
 pub(super) fn confirm_delete_dialog(
@@ -441,8 +478,9 @@ fn file_name(path: &std::path::Path) -> String {
     path.file_name().unwrap_or_default().to_string_lossy().to_string()
 }
 
-/// One "thing → system" line, shared by the wrong-system dialogs.
-fn destination_row(label: String, to: &'static SystemDef, cx: &App) -> Div {
+/// One "thing → system" line, shared by the wrong-system dialogs. `adds`
+/// marks a system that isn't in the sidebar yet.
+fn destination_row(label: String, to: &'static SystemDef, adds: bool, cx: &App) -> Div {
     let t = cx.theme();
     h_flex()
         .gap_2()
@@ -461,6 +499,18 @@ fn destination_row(label: String, to: &'static SystemDef, cx: &App) -> Div {
                 .child(system_glyph(to, px(11.), t.foreground))
                 .child(to.short_name),
         )
+        .when(adds, |row| row.child(Tag::info().small().child("new")))
+}
+
+/// "Game Boy and SNES will be added to your list." for systems not listed.
+fn added_note(new: &[&'static SystemDef]) -> Option<String> {
+    let names: Vec<&str> = new.iter().map(|s| s.display_name).collect();
+    let list = match names.as_slice() {
+        [] => return None,
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    Some(format!(" {list} will be added to your list."))
 }
 
 fn destination_list(rows: impl IntoIterator<Item = Div>, cx: &App) -> Div {
@@ -477,6 +527,7 @@ fn destination_list(rows: impl IntoIterator<Item = Div>, cx: &App) -> Div {
 /// Some of the files being installed into `here` are, by their contents,
 /// games for other systems. Offer to put them where they belong.
 pub(super) fn confirm_wrong_system(
+    view: &mut RootView,
     here: &'static SystemDef,
     files: Vec<(PathBuf, &'static SystemDef)>,
     window: &mut Window,
@@ -488,12 +539,26 @@ pub(super) fn confirm_wrong_system(
         [(path, other)] => format!("{} looks like a {} game", file_name(path), other.display_name),
         _ => format!("{n} files look like games for other systems"),
     };
-    let mut targets: Vec<&'static SystemDef> = files.iter().map(|(_, to)| *to).collect();
-    targets.dedup_by_key(|s| s.id);
+    let mut targets: Vec<&'static SystemDef> = Vec::new();
+    for (_, to) in &files {
+        if !targets.iter().any(|t| t.id == to.id) {
+            targets.push(to);
+        }
+    }
+    let new: Vec<&'static SystemDef> = targets.iter().copied().filter(|t| !view.is_enabled(t)).collect();
     let go_label = match targets.as_slice() {
-        [only] => format!("Install to {}", only.display_name),
+        [only] if new.is_empty() => format!("Install to {}", only.display_name),
+        [only] => format!("Add {} & install", only.display_name),
         _ => "Install where they belong".to_string(),
     };
+    let note = format!(
+        "You're adding to {}. EmulationStation would start {} with the {} emulator, and {} won't run there.{}",
+        here.display_name,
+        if n == 1 { "it" } else { "them" },
+        here.display_name,
+        if n == 1 { "it" } else { "they" },
+        added_note(&new).unwrap_or_default(),
+    );
     // "Anyway" only makes sense if this system takes at least one of them.
     let can_stay = files
         .iter()
@@ -503,20 +568,17 @@ pub(super) fn confirm_wrong_system(
         let (go, stay) = (this.clone(), this.clone());
         let go_files = files.clone();
         let stay_files: Vec<(PathBuf, &'static SystemDef)> = files.iter().map(|(p, _)| (p.clone(), here)).collect();
+        let rows = files.iter().map(|(p, to)| {
+            destination_row(file_name(p), to, new.iter().any(|s| s.id == to.id), cx)
+        });
         dialog
             .title(title.clone())
             .w(px(480.))
             .child(
                 v_flex()
                     .gap_3()
-                    .child(div().text_sm().text_color(t.muted_foreground).child(format!(
-                        "You're adding to {}. EmulationStation would start {} with the {} emulator, and {} won't run there.",
-                        here.display_name,
-                        if n == 1 { "it" } else { "them" },
-                        here.display_name,
-                        if n == 1 { "it" } else { "they" },
-                    )))
-                    .child(destination_list(files.iter().map(|(p, to)| destination_row(file_name(p), to, cx)), cx)),
+                    .child(div().text_sm().text_color(t.muted_foreground).child(note.clone()))
+                    .child(destination_list(rows, cx)),
             )
             .footer(
                 h_flex()
@@ -537,7 +599,7 @@ pub(super) fn confirm_wrong_system(
                     })
                     .child(Button::new("wrong-go").primary().label(go_label.clone()).on_click(move |_, window, cx| {
                         window.close_dialog(cx);
-                        go.update(cx, |view, cx| view.install_into(go_files.clone(), window, cx)).ok();
+                        go.update(cx, |view, cx| view.install_elsewhere(go_files.clone(), window, cx)).ok();
                     })),
             )
     });
@@ -546,26 +608,293 @@ pub(super) fn confirm_wrong_system(
 /// Confirm moving every flagged game in the selected system.
 pub(super) fn confirm_move_misplaced(view: &mut RootView, window: &mut Window, cx: &mut Context<RootView>) {
     let this = cx.entity().downgrade();
-    let games: Vec<(String, &'static SystemDef)> = view
+    let games: Vec<(String, &'static SystemDef, bool)> = view
         .misplaced_games()
         .into_iter()
-        .map(|(g, to)| (g.title_and_tags().0, to))
+        .map(|m| (m.entry.title_and_tags().0, m.to, !view.is_enabled(m.to)))
         .collect();
-    let folder = view.selected.folder;
+    let mut new: Vec<&'static SystemDef> = Vec::new();
+    for (_, to, adds) in &games {
+        if *adds && !new.iter().any(|s| s.id == to.id) {
+            new.push(to);
+        }
+    }
+    let description = format!(
+        "Each one goes from ~/RetroPie/roms/{} to the folder for the system it was made for. Artwork scraped for the wrong system is removed.{}",
+        view.selected.folder,
+        added_note(&new).unwrap_or_default(),
+    );
     window.open_alert_dialog(cx, move |alert: AlertDialog, _, cx| {
         let n = games.len();
         let this = this.clone();
         alert
             .confirm()
             .title(format!("Move {n} {}?", if n == 1 { "game" } else { "games" }))
-            .description(format!(
-                "Each one goes from ~/RetroPie/roms/{folder} to the folder for the system it was made for. Artwork scraped for the wrong system is removed."
+            .description(description.clone())
+            .child(destination_list(
+                games.iter().map(|(title, to, adds)| destination_row(title.clone(), to, *adds, cx)),
+                cx,
             ))
-            .child(destination_list(games.iter().map(|(title, to)| destination_row(title.clone(), to, cx)), cx))
             .ok_text("Move games")
             .cancel_text("Cancel")
             .on_ok(move |_, window, cx| {
                 this.update(cx, |view, cx| view.move_all_misplaced(window, cx)).ok();
+                true
+            })
+    });
+}
+
+/// One system the "Add emulator" picker offers.
+#[derive(Clone)]
+struct Choice {
+    system: &'static SystemDef,
+    photo: Option<PathBuf>,
+    /// Flagged games elsewhere that belong to it.
+    waiting: usize,
+    /// RetroPie has an emulator set up for it.
+    installed: bool,
+}
+
+impl Choice {
+    fn matches(&self, query: &str) -> bool {
+        let s = self.system;
+        query.is_empty()
+            || [s.display_name, s.short_name, s.maker, s.id]
+                .iter()
+                .any(|field| field.to_lowercase().contains(query))
+    }
+}
+
+/// The flat grey the system photos were composited onto, so the photo
+/// well and the image read as one surface in both themes.
+const PHOTO_WELL: u32 = 0xECECEF;
+
+/// Searchable grid of photo cards for every system not in the sidebar,
+/// grouped by maker, with the ones that have games waiting for them first.
+pub(super) fn open_add_system(view: &mut RootView, window: &mut Window, cx: &mut Context<RootView>) {
+    let this = cx.entity().downgrade();
+    let choices: Vec<Choice> = SYSTEMS
+        .iter()
+        .filter(|s| !view.is_enabled(s))
+        .map(|system| Choice {
+            system,
+            photo: assets::system_photo(system),
+            waiting: view.waiting_for(system).len(),
+            installed: view.runnable.contains(system.id),
+        })
+        .collect();
+    let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search systems"));
+    search.update(cx, |s, cx| s.focus(window, cx));
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let t = cx.theme();
+        let query = search.read(cx).value().trim().to_lowercase();
+        let visible: Vec<&Choice> = choices.iter().filter(|c| c.matches(&query)).collect();
+
+        let mut groups: Vec<(String, Vec<&Choice>)> = Vec::new();
+        let suggested: Vec<&Choice> = visible.iter().copied().filter(|c| c.waiting > 0).collect();
+        if !suggested.is_empty() {
+            groups.push(("Suggested for games you already have".into(), suggested));
+        }
+        for maker in MAKERS {
+            let items: Vec<&Choice> =
+                visible.iter().copied().filter(|c| c.system.maker == *maker && c.waiting == 0).collect();
+            if !items.is_empty() {
+                groups.push((maker.to_string(), items));
+            }
+        }
+
+        let body = if choices.is_empty() {
+            empty_note("Every system the app knows is already in your list.", cx)
+        } else if visible.is_empty() {
+            empty_note(&format!("No system matches “{query}”."), cx)
+        } else {
+            v_flex().gap_6().pb_1().children(groups.into_iter().map(|(heading, items)| {
+                let count = items.len();
+                v_flex()
+                    .gap_2p5()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .text_xs()
+                            .font_semibold()
+                            .text_color(t.muted_foreground)
+                            .child(heading)
+                            .child(div().font_normal().opacity(0.7).child(count.to_string())),
+                    )
+                    .child(
+                        div()
+                            .grid()
+                            .grid_cols(3)
+                            .gap_3()
+                            .children(items.into_iter().map(|choice| choice_card(choice, this.clone(), cx))),
+                    )
+            }))
+        };
+
+        dialog
+            .title("Add an emulator")
+            .w(px(760.))
+            .child(
+                v_flex()
+                    .gap_4()
+                    .child(
+                        h_flex()
+                            .gap_4()
+                            .items_center()
+                            .child(div().flex_1().min_w_0().text_sm().text_color(t.muted_foreground).child(
+                                "Pick a system to add it to your list.",
+                            ))
+                            .child(
+                                div().w(px(220.)).flex_shrink_0().child(
+                                    Input::new(&search)
+                                        .prefix(Icon::new(IconName::Search).small().text_color(t.muted_foreground))
+                                        .cleanable(true),
+                                ),
+                            ),
+                    )
+                    .child(div().id("add-system-scroll").h(px(500.)).overflow_y_scroll().pr_1().child(body))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(t.muted_foreground.opacity(0.8))
+                            .child("Photos: Wikimedia Commons, mostly by Evan-Amos (public domain). Full credits in assets/systems/CREDITS.md."),
+                    ),
+            )
+    });
+}
+
+fn empty_note(text: &str, cx: &App) -> Div {
+    div()
+        .py_10()
+        .flex()
+        .justify_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.to_string())
+}
+
+fn choice_card(choice: &Choice, this: WeakEntity<RootView>, cx: &App) -> impl IntoElement {
+    let t = cx.theme();
+    let system = choice.system;
+    let accent = theme::accent(system.accent);
+    let group = SharedString::from(format!("choice-{}", system.id));
+
+    let photo = div()
+        .relative()
+        .h(px(128.))
+        .bg(rgb(PHOTO_WELL))
+        .flex()
+        .items_center()
+        .justify_center()
+        .map(|well| match &choice.photo {
+            Some(path) => well.child(img(path.clone()).size_full().object_fit(ObjectFit::Contain)),
+            None => well.child(system_tile(system, px(56.), px(28.), px(14.))),
+        })
+        .when(choice.waiting > 0, |well| {
+            well.child(
+                div().absolute().left(px(8.)).top(px(8.)).child(
+                    Tag::danger()
+                        .small()
+                        .child(format!("{} {} waiting", choice.waiting, if choice.waiting == 1 { "game" } else { "games" })),
+                ),
+            )
+        })
+        // "Add" pill fades in on hover, in the system's own colour.
+        .child(
+            h_flex()
+                .absolute()
+                .right(px(8.))
+                .top(px(8.))
+                .gap_1()
+                .px_2()
+                .py(px(3.))
+                .rounded_full()
+                .bg(accent)
+                .text_xs()
+                .font_medium()
+                .text_color(white())
+                .invisible()
+                .group_hover(group.clone(), |s| s.visible())
+                .child(Icon::new(IconName::Plus).xsmall())
+                .child("Add"),
+        );
+
+    let (dot, status) = if choice.installed {
+        (t.success, "Emulator installed")
+    } else {
+        (t.muted_foreground.opacity(0.5), "Emulator not installed yet")
+    };
+    let caption = h_flex()
+        .gap_2p5()
+        .px_3()
+        .py_2p5()
+        .child(system_tile(system, px(26.), px(14.), px(7.)))
+        .child(
+            v_flex()
+                .min_w_0()
+                .child(div().text_sm().font_semibold().truncate().child(system.display_name))
+                .child(
+                    h_flex()
+                        .gap_1p5()
+                        .text_xs()
+                        .text_color(t.muted_foreground)
+                        .child(div().size(px(6.)).flex_shrink_0().rounded_full().bg(dot))
+                        .child(div().truncate().child(status)),
+                ),
+        );
+
+    v_flex()
+        .id(SharedString::from(format!("add-{}", system.id)))
+        .group(group)
+        .rounded(t.radius_lg)
+        .overflow_hidden()
+        .border_1()
+        .border_color(if choice.waiting > 0 { t.danger.opacity(0.6) } else { t.border })
+        .bg(theme::card_bg(cx))
+        .cursor_pointer()
+        .hover(|s| s.border_color(accent))
+        .child(photo)
+        .child(caption)
+        .on_click(move |_, window, cx| {
+            window.close_dialog(cx);
+            this.update(cx, |view, cx| view.add_system(system, window, cx)).ok();
+        })
+}
+
+/// Removing a system deletes its games, so say exactly what goes.
+pub(super) fn confirm_remove_system(
+    system: &'static SystemDef,
+    window: &mut Window,
+    cx: &mut Context<RootView>,
+) {
+    let this = cx.entity().downgrade();
+    let games = library::list_installed_games(system).unwrap_or_default();
+    let n = games.len();
+    let files: usize = games.iter().map(|g| g.files.len()).sum();
+    let bytes: u64 = games.iter().flat_map(|g| g.file_sizes()).sum();
+    window.open_alert_dialog(cx, move |alert: AlertDialog, _, _| {
+        let this = this.clone();
+        let description = if n == 0 {
+            "It has no games, so nothing is deleted. You can add it back from Add emulator any time.".to_string()
+        } else {
+            format!(
+                "This permanently deletes its {n} {} ({files} {}, {}) from ~/RetroPie/roms/{}, along with {} scraped artwork. This can't be undone. RetroPie's emulator itself stays installed.",
+                if n == 1 { "game" } else { "games" },
+                if files == 1 { "file" } else { "files" },
+                library::format_size(bytes),
+                system.folder,
+                if n == 1 { "its" } else { "their" },
+            )
+        };
+        alert
+            .confirm()
+            .title(format!("Remove {}?", system.display_name))
+            .description(description)
+            .ok_text(if n == 0 { "Remove".to_string() } else { format!("Delete {n} {} & remove", if n == 1 { "game" } else { "games" }) })
+            .ok_variant(if n == 0 { ButtonVariant::Primary } else { ButtonVariant::Danger })
+            .cancel_text("Cancel")
+            .on_ok(move |_, window, cx| {
+                this.update(cx, |view, cx| view.remove_system(system, window, cx)).ok();
                 true
             })
     });

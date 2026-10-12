@@ -6,12 +6,14 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, WindowExt};
 use gpui_kit::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::config;
 use crate::detect;
+use crate::launch;
 use crate::library::{self, GameEntry};
 use crate::scraper::{self, GameMeta, ScrapeStatus, ScraperSettings};
 use crate::skyscraper_setup;
@@ -42,8 +44,29 @@ pub struct SetupJob {
     pub line: String,
 }
 
+/// A game in one system's folder whose contents say it's for another.
+#[derive(Clone)]
+pub struct Misplaced {
+    pub from: &'static SystemDef,
+    pub entry: GameEntry,
+    pub to: &'static SystemDef,
+}
+
+/// A game started with Play, until its emulator quits.
+pub struct RunningGame {
+    pub title: String,
+    pub emulator: String,
+}
+
 pub struct RootView {
     pub(super) selected: &'static SystemDef,
+    /// Systems in the sidebar: the ones the user added, plus any with games.
+    pub(super) enabled: Vec<&'static SystemDef>,
+    /// The user's own picks, as saved by `config`.
+    saved: Vec<&'static str>,
+    /// Systems RetroPie has an emulator set up for (Play works).
+    pub(super) runnable: HashSet<&'static str>,
+    pub(super) running: Option<RunningGame>,
     pub(super) games: Vec<GameEntry>,
     /// Scraped metadata for `selected`, keyed by ROM path (from gamelist.xml).
     pub(super) gamelist: HashMap<PathBuf, GameMeta>,
@@ -59,10 +82,12 @@ pub struct RootView {
     pub(super) search: Entity<InputState>,
     pub(super) query: String,
     pub(super) scrape: Option<ScrapeJob>,
-    /// Games in `selected` whose contents say they're for another system,
-    /// keyed by the entry's first file. Filled in the background.
-    pub(super) misplaced: HashMap<PathBuf, &'static SystemDef>,
+    /// Games across every listed system that belong somewhere else.
+    /// Filled in the background.
+    pub(super) misplaced: Vec<Misplaced>,
     detect_cache: Arc<Mutex<detect::Cache>>,
+    /// Bumped per audit, so a slow older one can't overwrite a newer one.
+    audit_generation: u64,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -79,21 +104,18 @@ impl RootView {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
 
-        // Open on the first system that has something in it. Debug builds
-        // can pick one with ROM_MANAGER_SYSTEM=<id>, for screenshots.
+        // Debug builds can pick the opening system with
+        // ROM_MANAGER_SYSTEM=<id>, for screenshots.
         let requested = cfg!(debug_assertions)
             .then(|| std::env::var("ROM_MANAGER_SYSTEM").ok())
             .flatten()
             .and_then(|id| systems::by_id(&id));
-        let selected = requested.unwrap_or_else(|| {
-            systems::SYSTEMS
-                .iter()
-                .find(|s| library::list_installed_games(s).is_ok_and(|g| !g.is_empty()))
-                .unwrap_or(&systems::SYSTEMS[0])
-        });
-        theme::apply_accent(selected.accent, cx);
         let mut view = Self {
-            selected,
+            selected: requested.unwrap_or(&systems::SYSTEMS[0]),
+            enabled: Vec::new(),
+            saved: config::load_enabled(),
+            runnable: HashSet::new(),
+            running: None,
             games: Vec::new(),
             gamelist: HashMap::new(),
             counts: HashMap::new(),
@@ -106,12 +128,20 @@ impl RootView {
             search,
             query: String::new(),
             scrape: None,
-            misplaced: HashMap::new(),
+            misplaced: Vec::new(),
             detect_cache: Arc::default(),
+            audit_generation: 0,
             focus_handle,
             _subscriptions: vec![subscription],
         };
         view.refresh(cx);
+        // Otherwise open on the first listed system that has something in it.
+        let first_with_games = view.enabled.iter().find(|s| view.counts.get(s.id).is_some_and(|n| *n > 0));
+        if let Some(system) = requested.or(first_with_games.copied()) {
+            view.selected = system;
+            view.refresh(cx);
+        }
+        theme::apply_accent(view.selected.accent, cx);
         #[cfg(debug_assertions)]
         cx.defer_in(window, Self::debug_startup);
         view
@@ -121,7 +151,7 @@ impl RootView {
     /// screenshots don't need clicking around.
     /// `ROM_MANAGER_VIEW=list`, `ROM_MANAGER_THEME=light`,
     /// `ROM_MANAGER_OPEN=<card index>` (details sheet),
-    /// `ROM_MANAGER_DIALOG=delete|about|install-skyscraper`,
+    /// `ROM_MANAGER_DIALOG=delete|about|install-skyscraper|add-system|remove-system|move`,
     /// `ROM_MANAGER_RUN=install-skyscraper|scrape` (start it right away),
     /// `ROM_MANAGER_INSTALL=<file>` (as if it were dropped on the window).
     #[cfg(debug_assertions)]
@@ -143,6 +173,15 @@ impl RootView {
         match var("ROM_MANAGER_DIALOG").as_deref() {
             Some("about") => super::details::open_about(self, window, cx),
             Some("install-skyscraper") => super::details::confirm_install_skyscraper(window, cx),
+            // After the first audit, so suggestions show.
+            Some("add-system") => cx
+                .spawn_in(window, async move |this, cx| {
+                    cx.background_executor().timer(Duration::from_secs(1)).await;
+                    this.update_in(cx, |this, window, cx| super::details::open_add_system(this, window, cx)).ok();
+                })
+                .detach(),
+            Some("remove-system") => super::details::confirm_remove_system(self.selected, window, cx),
+            Some("move") => super::details::confirm_move_misplaced(self, window, cx),
             _ => {}
         }
         match var("ROM_MANAGER_RUN").as_deref() {
@@ -156,41 +195,63 @@ impl RootView {
         cx.notify();
     }
 
-    /// Re-read everything from disk: the selected system's games and
-    /// gamelist, per-system counts, and the scraper environment.
+    /// Re-read everything from disk: which systems are listed, the selected
+    /// system's games and gamelist, per-system counts, and the scraper and
+    /// emulator environment.
     pub(super) fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.games = library::list_installed_games(self.selected).unwrap_or_default();
-        self.gamelist = scraper::read_gamelist(self.selected);
-        self.counts = systems::SYSTEMS
+        let libraries: Vec<(&'static SystemDef, Vec<GameEntry>)> = systems::SYSTEMS
             .iter()
-            .map(|s| (s.id, library::list_installed_games(s).map(|g| g.len()).unwrap_or(0)))
+            .map(|s| (s, library::list_installed_games(s).unwrap_or_default()))
             .collect();
+        self.counts = libraries.iter().map(|(s, games)| (s.id, games.len())).collect();
+        self.enabled = systems::SYSTEMS
+            .iter()
+            .filter(|s| self.saved.contains(&s.id) || self.counts.get(s.id).is_some_and(|n| *n > 0))
+            .collect();
+        if !self.is_enabled(self.selected) {
+            if let Some(first) = self.enabled.first() {
+                self.selected = first;
+                theme::apply_accent(first.accent, cx);
+            }
+        }
+        self.games = libraries
+            .iter()
+            .find(|(s, _)| s.id == self.selected.id)
+            .map(|(_, games)| games.clone())
+            .unwrap_or_default();
+        self.gamelist = scraper::read_gamelist(self.selected);
         self.settings = scraper::load_settings();
         self.skyscraper_installed = scraper::skyscraper_binary().is_some();
         self.can_install_skyscraper = skyscraper_setup::retropie_setup_script().is_some();
         self.es_running = scraper::emulationstation_running();
-        self.audit(cx);
+        self.runnable = systems::SYSTEMS.iter().filter(|s| launch::can_run(s)).map(|s| s.id).collect();
+        let listed = libraries.into_iter().filter(|(s, _)| self.is_enabled(s)).collect();
+        self.audit(listed, cx);
         cx.notify();
     }
 
-    /// Look inside the selected system's games, off the UI thread, for any
+    /// Look inside every listed system's games, off the UI thread, for any
     /// that belong to a different system.
-    fn audit(&mut self, cx: &mut Context<Self>) {
-        let system = self.selected;
-        let games = self.games.clone();
+    fn audit(&mut self, libraries: Vec<(&'static SystemDef, Vec<GameEntry>)>, cx: &mut Context<Self>) {
+        self.audit_generation += 1;
+        let generation = self.audit_generation;
         let cache = self.detect_cache.clone();
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_spawn(async move {
                     let mut cache = cache.lock().unwrap();
-                    games
-                        .iter()
-                        .filter_map(|g| Some((g.files.first()?.clone(), cache.misplaced(system, g)?)))
-                        .collect::<HashMap<_, _>>()
+                    libraries
+                        .into_iter()
+                        .flat_map(|(from, games)| games.into_iter().map(move |entry| (from, entry)))
+                        .filter_map(|(from, entry)| {
+                            let to = cache.misplaced(from, &entry)?;
+                            Some(Misplaced { from, entry, to })
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.selected.id == system.id {
+                if this.audit_generation == generation {
                     this.misplaced = found;
                     cx.notify();
                 }
@@ -200,16 +261,35 @@ impl RootView {
         .detach();
     }
 
-    /// The system `entry` really belongs to, if it isn't the selected one.
-    pub(super) fn misplaced_as(&self, entry: &GameEntry) -> Option<&'static SystemDef> {
-        entry.files.first().and_then(|f| self.misplaced.get(f).copied())
+    pub(super) fn is_enabled(&self, system: &SystemDef) -> bool {
+        self.enabled.iter().any(|s| s.id == system.id)
     }
 
-    pub(super) fn misplaced_games(&self) -> Vec<(&GameEntry, &'static SystemDef)> {
-        self.games
+    /// The system `entry` (in the selected system) really belongs to.
+    pub(super) fn misplaced_as(&self, entry: &GameEntry) -> Option<&'static SystemDef> {
+        self.misplaced
             .iter()
-            .filter_map(|g| Some((g, self.misplaced_as(g)?)))
-            .collect()
+            .find(|m| m.from.id == self.selected.id && m.entry.files.first() == entry.files.first())
+            .map(|m| m.to)
+    }
+
+    /// Flagged games in the selected system.
+    pub(super) fn misplaced_games(&self) -> Vec<&Misplaced> {
+        self.misplaced.iter().filter(|m| m.from.id == self.selected.id).collect()
+    }
+
+    /// How many games in `system` are flagged, for the sidebar.
+    pub(super) fn flagged_in(&self, system: &SystemDef) -> usize {
+        self.misplaced.iter().filter(|m| m.from.id == system.id).count()
+    }
+
+    /// Flagged games, anywhere, that belong to `system`.
+    pub(super) fn waiting_for(&self, system: &SystemDef) -> Vec<&Misplaced> {
+        self.misplaced.iter().filter(|m| m.to.id == system.id).collect()
+    }
+
+    pub(super) fn can_run(&self) -> bool {
+        self.runnable.contains(self.selected.id)
     }
 
     pub(super) fn select_system(
@@ -327,12 +407,26 @@ impl RootView {
                     this.install_into(here, window, cx);
                 }
                 if !elsewhere.is_empty() {
-                    super::details::confirm_wrong_system(system, elsewhere, window, cx);
+                    super::details::confirm_wrong_system(this, system, elsewhere, window, cx);
                 }
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Install files into the systems they were identified as, adding any of
+    /// those systems that aren't listed yet.
+    pub(super) fn install_elsewhere(
+        &mut self,
+        jobs: Vec<(PathBuf, &'static SystemDef)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for (_, system) in &jobs {
+            self.enable(system, window, cx);
+        }
+        self.install_into(jobs, window, cx);
     }
 
     /// Install each file into the system paired with it, report the outcome,
@@ -548,8 +642,12 @@ impl RootView {
     // Uninstall
     // -----------------------------------------------------------------------
 
-    /// Move a game to the system its contents say it's for. Scraped art
-    /// stays behind (it was looked up as the wrong system), so it's removed.
+    // -----------------------------------------------------------------------
+    // Moving games where they belong
+    // -----------------------------------------------------------------------
+
+    /// Move a game in the selected system to the system its contents say
+    /// it's for, adding that system to the list if needed.
     pub(super) fn move_game(
         &mut self,
         entry: GameEntry,
@@ -558,16 +656,17 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let (title, _) = entry.title_and_tags();
-        match self.move_one(&entry, to) {
-            Ok(()) => window.push_notification(
-                Notification::success(format!("It's in ~/RetroPie/roms/{} now.", to.folder))
-                    .title(format!("Moved {title} to {}", to.display_name)),
+        let added = !self.is_enabled(to);
+        if self.relocate(vec![Misplaced { from: self.selected, entry, to }], window, cx) == 1 {
+            let detail = if added {
+                format!("{} is in your list now, with the game in it.", to.display_name)
+            } else {
+                format!("It's in ~/RetroPie/roms/{} now.", to.folder)
+            };
+            window.push_notification(
+                Notification::success(detail).title(format!("Moved {title} to {}", to.display_name)),
                 cx,
-            ),
-            Err(err) => window.push_notification(
-                Notification::error(err.to_string()).title(format!("Couldn't move {title}")),
-                cx,
-            ),
+            );
         }
         window.close_sheet(cx);
         self.refresh(cx);
@@ -575,18 +674,8 @@ impl RootView {
 
     /// Move every flagged game in the selected system to where it belongs.
     pub(super) fn move_all_misplaced(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let jobs: Vec<(GameEntry, &'static SystemDef)> =
-            self.misplaced_games().into_iter().map(|(g, to)| (g.clone(), to)).collect();
-        let mut moved = 0;
-        for (entry, to) in &jobs {
-            match self.move_one(entry, to) {
-                Ok(()) => moved += 1,
-                Err(err) => window.push_notification(
-                    Notification::error(err.to_string()).title(format!("Couldn't move {}", entry.title_and_tags().0)),
-                    cx,
-                ),
-            }
-        }
+        let jobs: Vec<Misplaced> = self.misplaced_games().into_iter().cloned().collect();
+        let moved = self.relocate(jobs, window, cx);
         if moved > 0 {
             window.push_notification(
                 Notification::success("Each one is in the folder for the system it was made for.")
@@ -597,12 +686,179 @@ impl RootView {
         self.refresh(cx);
     }
 
-    fn move_one(&mut self, entry: &GameEntry, to: &'static SystemDef) -> anyhow::Result<()> {
-        library::move_game(entry, self.selected, to)?;
-        if let Some(meta) = scraper::meta_for(entry, &self.gamelist) {
-            scraper::remove_media(self.selected, meta);
+    /// Move each game to its target system, adding systems that aren't
+    /// listed yet. Scraped art stays behind (it was looked up as the wrong
+    /// system), so it's removed. Returns how many moved; failures are
+    /// reported as they happen.
+    fn relocate(&mut self, jobs: Vec<Misplaced>, window: &mut Window, cx: &mut Context<Self>) -> usize {
+        let mut gamelists: HashMap<&'static str, HashMap<PathBuf, GameMeta>> = HashMap::new();
+        let mut moved = 0;
+        for job in jobs {
+            self.enable(job.to, window, cx);
+            let gamelist = gamelists.entry(job.from.id).or_insert_with(|| scraper::read_gamelist(job.from));
+            match library::move_game(&job.entry, job.from, job.to) {
+                Ok(_) => {
+                    if let Some(meta) = scraper::meta_for(&job.entry, gamelist) {
+                        scraper::remove_media(job.from, meta);
+                    }
+                    moved += 1;
+                }
+                Err(err) => window.push_notification(
+                    Notification::error(err.to_string())
+                        .title(format!("Couldn't move {}", job.entry.title_and_tags().0)),
+                    cx,
+                ),
+            }
         }
-        Ok(())
+        moved
+    }
+
+    // -----------------------------------------------------------------------
+    // Adding / removing systems
+    // -----------------------------------------------------------------------
+
+    /// Put `system` in the sidebar for good. Its folder is created so
+    /// EmulationStation and the file picker agree it exists.
+    fn enable(&mut self, system: &'static SystemDef, window: &mut Window, cx: &mut Context<Self>) {
+        if self.saved.contains(&system.id) {
+            return;
+        }
+        self.saved.push(system.id);
+        if !self.is_enabled(system) {
+            self.enabled.push(system);
+        }
+        let _ = library::ensure_system_dir(system);
+        self.save_enabled(window, cx);
+    }
+
+    fn save_enabled(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Err(err) = config::save_enabled(&self.saved) {
+            window.push_notification(
+                Notification::warning(format!("It'll be back to the old list next time: {err}"))
+                    .title("Couldn't save your systems"),
+                cx,
+            );
+        }
+    }
+
+    /// Add `system` from the picker, move over any games that were waiting
+    /// for it, and switch to it.
+    pub(super) fn add_system(&mut self, system: &'static SystemDef, window: &mut Window, cx: &mut Context<Self>) {
+        self.enable(system, window, cx);
+        let waiting: Vec<Misplaced> = self.waiting_for(system).into_iter().cloned().collect();
+        let moved = self.relocate(waiting, window, cx);
+        let detail = if moved > 0 {
+            format!("Moved {moved} {} here that belonged to it.", if moved == 1 { "game" } else { "games" })
+        } else {
+            format!("Drop its games here, or into ~/RetroPie/roms/{}.", system.folder)
+        };
+        window.push_notification(Notification::success(detail).title(format!("Added {}", system.display_name)), cx);
+        self.select_system(system, window, cx);
+    }
+
+    /// Take `system` out of the sidebar, deleting its games (the user has
+    /// confirmed). The folder itself stays: it belongs to RetroPie.
+    pub(super) fn remove_system(&mut self, system: &'static SystemDef, window: &mut Window, cx: &mut Context<Self>) {
+        let games = library::list_installed_games(system).unwrap_or_default();
+        let gamelist = scraper::read_gamelist(system);
+        let mut deleted = 0;
+        let mut failed = Vec::new();
+        for game in &games {
+            match library::uninstall_game(game) {
+                Ok(_) => {
+                    if let Some(meta) = scraper::meta_for(game, &gamelist) {
+                        scraper::remove_media(system, meta);
+                    }
+                    deleted += 1;
+                }
+                Err(err) => failed.push(err.to_string()),
+            }
+        }
+        self.saved.retain(|id| *id != system.id);
+        self.save_enabled(window, cx);
+        if failed.is_empty() {
+            let detail = match deleted {
+                0 => "You can add it back any time.".to_string(),
+                n => format!("Deleted {n} {}.", if n == 1 { "game" } else { "games" }),
+            };
+            window.push_notification(Notification::success(detail).title(format!("Removed {}", system.display_name)), cx);
+        } else {
+            window.push_notification(
+                Notification::error(failed.join("\n"))
+                    .title(format!("Some {} games couldn't be deleted, so it stays listed", system.display_name))
+                    .autohide(false),
+                cx,
+            );
+        }
+        let was_selected = self.selected.id == system.id;
+        self.refresh(cx);
+        if was_selected {
+            let next = self.selected;
+            self.select_system(next, window, cx);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Playing
+    // -----------------------------------------------------------------------
+
+    /// Start `entry` with RetroPie's default emulator for the selected
+    /// system, and watch for it to quit.
+    pub(super) fn run_game(&mut self, entry: &GameEntry, window: &mut Window, cx: &mut Context<Self>) {
+        if self.running.is_some() {
+            return;
+        }
+        let system = self.selected;
+        let (title, _) = entry.title_and_tags();
+        let started = detect::representative(system, entry)
+            .ok_or_else(|| anyhow::anyhow!("no ROM file to start"))
+            .and_then(|rom| launch::start(system, &rom));
+        let launch::Running { emulator, mut child, log } = match started {
+            Ok(running) => running,
+            Err(err) => {
+                window.push_notification(
+                    Notification::error(err.to_string()).title(format!("Couldn't start {title}")),
+                    cx,
+                );
+                return;
+            }
+        };
+        window.close_sheet(cx);
+        self.running = Some(RunningGame { title: title.clone(), emulator: emulator.clone() });
+        cx.notify();
+
+        // Wait on a plain thread (a game can run for hours), and poll it.
+        let exit = Arc::new(Mutex::new(None));
+        let slot = exit.clone();
+        std::thread::spawn(move || {
+            let status = child.wait();
+            *slot.lock().unwrap() = Some(status);
+        });
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(500)).await;
+            let Some(status) = exit.lock().unwrap().take() else { continue };
+            this.update_in(cx, |this, window, cx| {
+                this.running = None;
+                let failure = match status {
+                    Ok(status) if status.success() => None,
+                    Ok(status) => Some(match launch::log_tail(&log, 6) {
+                        tail if tail.is_empty() => format!("{emulator} quit with {status}."),
+                        tail => tail,
+                    }),
+                    Err(err) => Some(err.to_string()),
+                };
+                if let Some(detail) = failure {
+                    window.push_notification(
+                        Notification::error(detail).title(format!("{title} stopped with an error")).autohide(false),
+                        cx,
+                    );
+                }
+                cx.notify();
+            })
+            .ok();
+            break;
+        })
+        .detach();
     }
 
     pub(super) fn confirm_delete(&mut self, entry: GameEntry, window: &mut Window, cx: &mut Context<Self>) {
