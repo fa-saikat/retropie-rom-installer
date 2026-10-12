@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RetroPie ROM Manager — GPUI Kit design mockup v3</title>
+<!--
+  Design mockup v3 for the GPUI Kit (gpui-kit.com) migration.
+  Flat on purpose: solid fills, 1px borders and neutral shadows only — no
+  gradients, glows or gloss. Colour comes from the scraped box art; each
+  system's accent (`--a`) is a single flat colour used for its icon tile,
+  the active-row marker and the primary button.
+-->
+<style>
+  :root, [data-theme="dark"] {
+    --bg: #0e0e0e;
+    --fg: #ececec;
+    --fg-2: #a3a3a3;
+    --fg-3: #6e6e6e;
+    --line: #232323;
+    --line-2: #303030;
+    --surface: #171717;
+    --surface-flat: #171717;
+    --surface-2: #212121;
+    --sidebar: #121212;
+    --chip: #ffffff0b;
+    --overlay: #000000b3;
+    --shadow-sm: 0 1px 2px #00000080;
+    --shadow: 0 1px 2px #00000066, 0 4px 12px #00000040;
+    --shadow-lg: 0 16px 48px #00000099;
+    --danger: #dc3c3c;
+    --success: #2f9e5f;
+  }
+  [data-theme="light"] {
+    --bg: #f3f3f1;
+    --fg: #1a1a1a;
+    --fg-2: #5c5c5c;
+    --fg-3: #8f8f8f;
+    --line: #e2e2df;
+    --line-2: #d4d4d0;
+    --surface: #ffffff;
+    --surface-flat: #ffffff;
+    --surface-2: #ececea;
+    --sidebar: #fafaf9;
+    --chip: #0000000a;
+    --overlay: #00000059;
+    --shadow-sm: 0 1px 2px #0000000f;
+    --shadow: 0 1px 2px #0000000f, 0 4px 12px #0000000d;
+    --shadow-lg: 0 16px 48px #00000033;
+    --danger: #c62828;
+    --success: #1f8a4c;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font: 14px/1.45 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Ubuntu, sans-serif;
+    background: var(--bg); color: var(--fg); overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; }
+  svg.i { width: 16px; height: 16px; flex-shrink: 0; stroke: currentColor; fill: none;
+          stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  svg.i.xs { width: 13px; height: 13px; }
+  svg.i.sm { width: 14px; height: 14px; }
+  svg.i.lg { width: 22px; height: 22px; }
+  svg.i.xl { width: 28px; height: 28px; }
+
+  .devpanel { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 100; max-width: min(760px, calc(100vw - 32px));
+              background: #111118f0; border: 1px solid #ffffff1f; border-radius: 12px; box-shadow: 0 16px 40px -10px #000c; color: #c8c8d0; font-size: 12px; }
+  .devpanel summary { cursor: pointer; padding: 6px 14px; list-style: none; font-weight: 600; text-align: center; color: #9a9aa6; user-select: none; }
+  .devpanel summary::-webkit-details-marker { display: none; }
+  .devpanel summary::before { content: "▴ "; } .devpanel[open] summary::before { content: "▾ "; }
+  .devpanel[open] { padding: 0 16px 14px; }
+  .controls { display: flex; gap: 16px; align-items: center; color: #b8b8c0; font-size: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
+  .controls select { background: #2a2a31; color: #eee; border: 1px solid #3d3d46; border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+
+  /* ================= Root window ================= */
+  .window {
+    --a: #5b6ee1;                             /* system accent, set per system */
+    width: 100vw; height: 100vh;
+    background: var(--bg); color: var(--fg);
+    overflow: hidden; position: relative;
+    display: grid; grid-template-rows: 36px 1fr; isolation: isolate;
+  }
+
+  /* TitleBar */
+  .titlebar { display: flex; align-items: center; gap: 8px; padding: 0 14px; font-size: 13px;
+              color: var(--fg-2); border-bottom: 1px solid var(--line); background: var(--sidebar); }
+  .traffic { display: flex; gap: 7px; margin-right: 8px; }
+  .traffic span { width: 12px; height: 12px; border-radius: 50%; }
+  .traffic span { background: var(--line-2); }
+  .titlebar .t { color: var(--fg); font-weight: 600; }
+  .titlebar .grow { flex: 1; }
+
+  .body { display: grid; grid-template-columns: 252px 1fr; min-height: 0; }
+
+  /* ================= Sidebar ================= */
+  .sidebar { background: var(--sidebar); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+             min-height: 0; padding: 14px 10px 10px; gap: 6px; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px 14px; }
+  .brand-mark { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
+                background: var(--fg); color: var(--bg); }
+  .brand b { display: block; font-size: 15px; letter-spacing: -.01em; }
+  .brand small { color: var(--fg-3); font-size: 12px; }
+  .group-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); padding: 6px 8px; }
+
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav-item { --c: #888; position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 10px 0 8px;
+              border-radius: 10px; border: 1px solid transparent; background: none; cursor: pointer; text-align: left; width: 100%;
+              color: var(--fg-2); transition: background .15s, color .15s; }
+  .nav-item:hover { background: var(--chip); color: var(--fg); }
+  .nav-item .tile { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: #fff; flex-shrink: 0;
+                    background: var(--c); }
+
+  .nav-item .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .nav-item .count { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--fg-3); min-width: 22px; text-align: right; }
+  .nav-item.active { color: var(--fg); background: var(--surface-2); border-color: var(--line-2); }
+
+  .nav-item.active .count { color: var(--fg); }
+  .nav-item.active::before { content: ""; position: absolute; left: -10px; top: 11px; bottom: 11px; width: 3px; border-radius: 0 2px 2px 0;
+                             background: var(--c); }
+
+  .side-foot { margin-top: auto; display: flex; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+  .ghost { flex: 1; height: 32px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px;
+           border: 0; background: none; color: var(--fg-2); cursor: pointer; font-size: 13px; }
+  .ghost:hover { background: var(--chip); color: var(--fg); }
+
+  /* ================= Main ================= */
+  .main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .scroll { flex: 1; overflow: auto; padding: 20px 24px 64px; display: flex; flex-direction: column; gap: 18px; }
+  .scroll > * { flex-shrink: 0; }
+
+  /* Hero */
+  .hero { display: flex; align-items: center; gap: 16px; padding: 4px 0 2px; }
+
+  .hero-icon { width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center; color: #fff; flex-shrink: 0;
+               background: var(--a); }
+  .hero h1 { margin: 0; font-size: 26px; line-height: 1.15; font-weight: 700; letter-spacing: -.025em; }
+  .hero .sub { margin-top: 2px; color: var(--fg-2); font-size: 13px; }
+  .stats { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .stat { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 6px; font-size: 12px;
+          background: var(--chip); border: 1px solid var(--line); color: var(--fg-2); }
+  .stat b { color: var(--fg); font-weight: 600; }
+  .stat code { font: 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
+  .hero .cta { margin-left: auto; display: flex; gap: 8px; align-items: center; position: relative; }
+
+  /* Buttons */
+  .btn { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 7px;
+         cursor: pointer; font-weight: 600; white-space: nowrap; transition: filter .12s, background .12s, box-shadow .12s; }
+  .btn.sm { height: 30px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+  .btn.primary { color: #fff; background: var(--a); }
+  .btn.primary:hover { filter: brightness(1.1); }
+  .btn.primary:active { filter: brightness(.92); }
+  .btn.glass { color: var(--fg); background: var(--surface); border-color: var(--line-2); }
+  .btn.glass:hover { background: var(--surface-2); }
+  .btn.secondary { background: var(--surface); border-color: var(--line-2); color: var(--fg); }
+  .btn.secondary:hover { border-color: color-mix(in srgb, var(--fg) 25%, transparent); }
+  .btn.danger { color: #fff; background: var(--danger); }
+  .btn.danger:hover { filter: brightness(1.1); }
+
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: 10px; }
+  .toolbar h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  .toolbar .n { color: var(--fg-3); font-weight: 500; margin-left: 6px; }
+  .toolbar .grow { flex: 1; }
+  .input { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; width: 240px; border-radius: 8px;
+           background: var(--surface); border: 1px solid var(--line-2); color: var(--fg-3); }
+  .input:focus-within { border-color: var(--fg-3); }
+  .input input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; }
+  .input input::placeholder { color: var(--fg-3); }
+  .kbd { font: 11px/1 ui-monospace, Menlo, monospace; padding: 3px 6px; border-radius: 5px; color: var(--fg-3);
+         background: var(--chip); border: 1px solid var(--line-2); border-bottom-width: 2px; }
+  .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--surface-flat); border: 1px solid var(--line-2); }
+  .seg button { height: 26px; width: 30px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: var(--fg-3); cursor: pointer; }
+  .seg button.on { background: var(--surface-2); color: var(--fg); }
+
+  /* ================= Game cards (box art) ================= */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 14px; }
+  .card { position: relative; border-radius: 10px; overflow: hidden; background: var(--surface); border: 1px solid var(--line);
+          box-shadow: var(--shadow-sm); transition: transform .15s, box-shadow .15s, border-color .15s; cursor: pointer; }
+  .card:hover { transform: translateY(-2px); border-color: var(--line-2); box-shadow: var(--shadow); }
+  .art { position: relative; height: 118px; overflow: hidden; background: var(--surface-2); }
+  /* light sheen across the top-left + darkening at the bottom edge for legibility */
+
+  .art .mono { position: absolute; left: 14px; bottom: 8px; font-size: 44px; font-weight: 800; letter-spacing: -.04em; line-height: 1;
+               color: var(--fg-3); }
+  .art .glyph { position: absolute; right: -14px; top: -10px; width: 96px; height: 96px; color: var(--fg); opacity: .06; stroke-width: 1.5; }
+  .art .sys { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+              color: var(--fg-2); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px 2px 6px; }
+  .art .del { position: absolute; right: 10px; top: 10px; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+              background: var(--surface); border: 1px solid var(--line-2); color: var(--fg-2); cursor: pointer; opacity: 0; transform: scale(.9);
+              transition: opacity .15s, transform .15s, background .15s; }
+  .card:hover .del, .card:focus-within .del { opacity: 1; transform: none; }
+  .art .del:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .info { padding: 11px 13px 13px; display: flex; flex-direction: column; gap: 8px; }
+  .title { font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.6em; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .chip { font-size: 11px; font-weight: 500; height: 20px; padding: 0 7px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;
+          background: var(--chip); color: var(--fg-2); border: 1px solid var(--line); }
+  .chip.fmt { font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+  .chip.files { margin-left: auto; background: none; border: 0; color: var(--fg-3); padding: 0; }
+
+  /* Add tile — the old dropzone, now the first card in the grid */
+  .add-card { border-radius: 10px; border: 1.5px dashed var(--line-2); cursor: pointer; background: none;
+              display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 18px; min-height: 206px;
+              text-align: center; transition: background .15s, border-color .15s; }
+  .add-card:hover, .add-card.drag { border-color: var(--fg-3); background: var(--chip); }
+  .add-card .plus { width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; color: #fff; background: var(--a); }
+  .add-card b { font-size: 14px; }
+  .add-card small { color: var(--fg-3); font-size: 12px; }
+  .exts { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; max-width: 170px; }
+  .exts span { font: 10.5px ui-monospace, Menlo, monospace; color: var(--fg-2); background: var(--chip); border-radius: 4px; padding: 1px 5px; }
+
+  /* List view (DataTable) */
+  .table { border-radius: 10px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); }
+  .tr { display: grid; grid-template-columns: 44px 1fr 150px 70px 44px; align-items: center; gap: 12px; padding: 0 12px; height: 52px; border-top: 1px solid var(--line); }
+  .tr:first-child { border-top: 0; }
+  .tr.head { height: 36px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--fg-3); background: #00000018; }
+  .tr:not(.head):hover { background: var(--chip); }
+  .thumb { width: 36px; height: 36px; border-radius: 6px; display: grid; place-items: center; font-weight: 800; font-size: 13px;
+           background: var(--surface-2); color: var(--fg-3); }
+  .tr .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tr .num { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+  .icon-btn { width: 30px; height: 30px; border-radius: 8px; border: 0; display: grid; place-items: center; background: none; color: var(--fg-3); cursor: pointer; }
+  .icon-btn:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+
+  /* Empty */
+  .empty { flex: 1; min-height: 340px; border-radius: 12px; border: 1.5px dashed var(--line-2);
+           display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 32px; }
+  .empty .orb { width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center; color: #fff; margin-bottom: 8px;
+                background: var(--a); }
+  .empty h3 { margin: 0; font-size: 18px; letter-spacing: -.015em; }
+  .empty p { margin: 0 0 12px; color: var(--fg-2); max-width: 340px; font-size: 13px; }
+
+  /* Dialogs */
+  .overlay { position: absolute; inset: 0; z-index: 10; background: var(--overlay); display: none; align-items: center; justify-content: center; animation: fade .15s; }
+  .overlay.open { display: flex; }
+  .dialog { width: 460px; border-radius: 12px; overflow: hidden; background: var(--surface-flat); border: 1px solid var(--line-2);
+            box-shadow: var(--shadow-lg); animation: pop .16s ease-out; }
+  .dialog .band { padding: 20px 20px 16px; display: flex; gap: 14px; align-items: flex-start; }
+  .dialog .badge-ico { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: #fff; flex-shrink: 0;
+                       background: var(--tone); }
+  .dialog h2 { margin: 0 0 4px; font-size: 17px; letter-spacing: -.015em; line-height: 1.3; }
+  .dialog p { margin: 0; color: var(--fg-2); font-size: 13px; }
+  .dialog .mid { padding: 0 20px; }
+  .dialog .ft { padding: 16px 20px 20px; display: flex; justify-content: flex-end; gap: 8px; }
+  .disclose { display: flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; color: var(--fg-2); font-size: 12px; cursor: pointer; }
+  .disclose svg { transition: transform .15s; } .disclose.open svg { transform: rotate(180deg); }
+  .files { margin-top: 8px; border-radius: 10px; background: #00000026; border: 1px solid var(--line); max-height: 150px; overflow: auto;
+           font: 12px/2 ui-monospace, Menlo, monospace; color: var(--fg-2); padding: 4px 12px; }
+  [data-theme="light"] .files { background: var(--surface-2); }
+  .files div { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+  .dl { display: grid; grid-template-columns: 110px 1fr; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); font-size: 13px; }
+  .dl > div { padding: 8px 12px; border-top: 1px solid var(--line); }
+  .dl > div:nth-child(-n+2) { border-top: 0; }
+  .dl .k { color: var(--fg-3); background: var(--chip); }
+
+  /* Notifications */
+  .toasts { position: absolute; right: 18px; bottom: 18px; z-index: 20; display: flex; flex-direction: column; gap: 10px; }
+  .toast { width: 340px; display: flex; gap: 12px; align-items: flex-start; padding: 12px 12px 12px 14px; border-radius: 10px;
+           background: var(--surface); border: 1px solid var(--line-2); box-shadow: var(--shadow-lg); animation: slide .2s ease-out; }
+  .toast .ti { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: #fff; flex-shrink: 0;
+               background: var(--success); }
+  .toast.err .ti { background: var(--danger); }
+  .toast b { display: block; font-weight: 600; }
+  .toast span { font-size: 12.5px; color: var(--fg-2); }
+  .toast .x { margin-left: auto; }
+
+  [data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+                            background: #000; color: #fff; font-size: 11.5px; font-weight: 500; padding: 4px 8px; border-radius: 6px;
+                            white-space: nowrap; pointer-events: none; z-index: 40; box-shadow: var(--shadow-sm); }
+  [data-tip] { position: relative; }
+
+  @keyframes fade { from { opacity: 0 } }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.97) } }
+  @keyframes slide { from { opacity: 0; transform: translateY(10px) } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  /* ================= Scraping ================= */
+  /* Real box art (gamelist.xml <thumbnail>) layered over the generated art, which stays as the fallback. */
+  .art .cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 75% 30%; }
+
+  .art.has-cover .sys, .art.has-cover .del { z-index: 2; }
+    .chip.warn { color: #fbbf24; border-color: #fbbf2433; background: #fbbf2414; }
+  .stars { display: inline-flex; gap: 1px; color: #fbbf24; }
+  .stars svg { width: 11px; height: 11px; fill: currentColor; stroke: none; }
+  .stars .off { color: var(--line-2); }
+
+  .scrape-progress { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+  .scrape-progress .lbl { font-size: 12px; color: var(--fg-2); display: flex; justify-content: space-between; gap: 12px; }
+  .scrape-progress .lbl b { color: var(--fg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { height: 4px; border-radius: 999px; background: var(--line-2); overflow: hidden; }
+  .bar span { display: block; height: 100%; border-radius: inherit; background: var(--a); transition: width .35s ease; }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg) } }
+
+  /* Alert */
+  .alert { display: flex; gap: 12px; align-items: center; padding: 11px 14px; border-radius: 10px; font-size: 13px;
+           border: 1px solid #d9a40640; background: #d9a40612; color: var(--fg); }
+  .alert.accent { border-color: color-mix(in srgb, var(--a) 35%, transparent); background: color-mix(in srgb, var(--a) 9%, transparent); }
+  .alert.accent .ai { background: var(--a); color: #fff; }
+  .alert .ai { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: #fff; flex-shrink: 0; background: #c98f00; }
+  .alert span { color: var(--fg-2); }
+  .alert code { font: 12px ui-monospace, Menlo, monospace; color: var(--fg); background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+  .alert .btn { margin-left: auto; }
+
+  /* Sheet (game details) */
+  .sheet-wrap { position: absolute; inset: 0; z-index: 9; display: none; background: #05050a80; animation: fade .15s; }
+  .sheet-wrap.open { display: block; }
+  .sheet { position: absolute; top: 0; right: 0; bottom: 0; width: 420px; background: var(--surface-flat); border-left: 1px solid var(--line-2);
+           box-shadow: var(--shadow-lg); display: flex; flex-direction: column; animation: slidein .2s ease-out; }
+  @keyframes slidein { from { transform: translateX(30px); opacity: 0 } }
+  .sheet .shot { position: relative; height: 190px; background: var(--surface-2); overflow: hidden; flex-shrink: 0; }
+  .sheet .shot img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+  .sheet .shot .close { position: absolute; top: 12px; right: 12px; z-index: 2; width: 32px; height: 32px; border-radius: 9px; border: 1px solid #ffffff26;
+                        background: #00000066; color: #fff; display: grid; place-items: center; cursor: pointer; }
+  .sheet .head { display: flex; gap: 16px; padding: 0 22px; margin-top: -56px; position: relative; z-index: 1; align-items: flex-end; }
+  .sheet .box { width: 104px; height: 140px; border-radius: 8px; overflow: hidden; flex-shrink: 0; position: relative;
+                background: var(--surface-2); border: 3px solid var(--surface-flat); box-shadow: var(--shadow);
+                display: grid; place-items: center; color: var(--fg-3); font-size: 34px; font-weight: 800; letter-spacing: -.04em; }
+  .sheet .box img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .sheet h2 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.02em; }
+  .sheet .byline { color: var(--fg-2); font-size: 13px; margin-top: 4px; }
+  .sheet .body { padding: 18px 22px 22px; overflow: auto; display: flex; flex-direction: column; gap: 20px; }
+  .sheet .desc { color: var(--fg-2); font-size: 13.5px; line-height: 1.6; margin: 0; }
+  .sheet .desc.none { color: var(--fg-3); font-style: italic; }
+  .sheet section { display: flex; flex-direction: column; gap: 8px; }
+  .sheet h4 { margin: 0; font-size: 12px; font-weight: 600; color: var(--fg-2); display: flex; justify-content: space-between; align-items: baseline; }
+  .sheet h4 span { font-weight: 400; color: var(--fg-3); }
+  .kv { display: grid; grid-template-columns: 96px 1fr; margin: 0; font-size: 13px; }
+  .kv dt, .kv dd { margin: 0; padding: 6px 0; border-top: 1px solid var(--line); }
+  .kv dt { color: var(--fg-3); }
+  .kv dd { color: var(--fg); display: flex; align-items: center; gap: 6px; }
+  .kv dt:first-of-type, .kv dt:first-of-type + dd { border-top: 0; }
+  .media { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .media figure { margin: 0; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .media .tile { aspect-ratio: 4 / 3; border-radius: 6px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line);
+                 display: grid; place-items: center; color: var(--fg-3); position: relative; }
+  .media .tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .media .tile.missing { background: none; border-style: dashed; border-color: var(--line-2); }
+  .media figcaption { font-size: 11.5px; color: var(--fg-2); line-height: 1.25; }
+  .media figcaption small { display: block; color: var(--fg-3); font-size: 11px; }
+  .ftable { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 12.5px; }
+  .ftable .row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-top: 1px solid var(--line); }
+  .ftable .row:first-child { border-top: 0; }
+  .ftable .row .fn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .ftable .row .sz { color: var(--fg-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ftable .row.dir { background: var(--chip); color: var(--fg-3); font-size: 12px; }
+  .ftable .row.dir code { font: 12px ui-monospace, Menlo, monospace; color: var(--fg-2); }
+  .sheet .meta-src { font-size: 12px; color: var(--fg-3); }
+  .btn.danger-outline { background: none; border-color: color-mix(in srgb, var(--danger) 45%, transparent); color: var(--danger); }
+  .btn.danger-outline:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+  .btn.ghost-btn { background: none; color: var(--fg-2); }
+  .btn.ghost-btn:hover { background: var(--chip); color: var(--fg); }
+  .sheet .foot { margin-top: auto; padding: 12px 22px; border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  .sheet .foot .grow { flex: 1; }
+
+  .notes { color: #a8a8b2; font-size: 12px; line-height: 1.65; max-height: 40vh; overflow: auto; border-top: 1px solid #ffffff14; padding-top: 10px; }
+  .notes b { color: #e8e8ee; font-weight: 600; }
+  .notes code { color: #e8e8ee; }
+</style>
+</head>
+<body>
+
+<div class="window" id="win" data-theme="dark">
+  <div class="titlebar">
+    <div class="traffic"><span></span><span></span><span></span></div>
+    <span class="t">RetroPie ROM Manager</span>
+    <span class="grow"></span>
+    <span>~/RetroPie/roms</span>
+  </div>
+
+  <div class="body">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><svg class="i lg"><use href="#i-gamepad"/></svg></div>
+        <div><b>ROM Manager</b><small>for RetroPie · v1.1.0</small></div>
+      </div>
+      <div class="group-label">Systems</div>
+      <nav class="nav" id="nav"></nav>
+
+      <div class="side-foot">
+        <button class="ghost" id="openFolder"><svg class="i sm"><use href="#i-folder"/></svg>Folder</button>
+        <button class="ghost" id="openAbout"><svg class="i sm"><use href="#i-info"/></svg>About</button>
+        <button class="ghost" id="themeBtn" data-tip="Toggle theme" style="flex:0 0 36px"><svg class="i sm"><use href="#i-moon"/></svg></button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div class="scroll" id="scroll">
+        <section class="hero" id="hero"></section>
+        <div id="alertSlot" style="display:contents"></div>
+
+        <div class="toolbar">
+          <h2>Library<span class="n" id="libCount"></span></h2>
+          <span class="grow"></span>
+          <label class="input"><svg class="i sm"><use href="#i-search"/></svg><input id="search" placeholder="Search games" /><span class="kbd">/</span></label>
+          <div class="seg">
+            <button class="on" data-view="grid" data-tip="Grid"><svg class="i sm"><use href="#i-grid"/></svg></button>
+            <button data-view="list" data-tip="List"><svg class="i sm"><use href="#i-list"/></svg></button>
+          </div>
+        </div>
+
+        <div id="lib"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- AlertDialog -->
+  <div class="overlay" id="delDlg">
+    <div class="dialog" role="alertdialog" style="--tone: var(--danger)">
+      <div class="band">
+        <div class="badge-ico"><svg class="i"><use href="#i-trash"/></svg></div>
+        <div><h2 id="delTitle"></h2><p id="delDesc"></p></div>
+      </div>
+      <div class="mid">
+        <button class="disclose" id="disclose">Show files <svg class="i xs"><use href="#i-chevron"/></svg></button>
+        <div class="files" id="fileList" hidden></div>
+      </div>
+      <div class="ft">
+        <button class="btn secondary sm" data-close>Cancel</button>
+        <button class="btn danger sm" id="confirmDel">Delete files</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dialog: About -->
+  <div class="overlay" id="aboutDlg">
+    <div class="dialog" role="dialog" style="--tone: var(--fg-3); width: 420px">
+      <div class="band">
+        <div class="badge-ico"><svg class="i lg"><use href="#i-gamepad"/></svg></div>
+        <div><h2>RetroPie ROM Manager</h2><p>A fast, simple ROM manager for RetroPie.</p></div>
+      </div>
+      <div class="mid">
+        <div class="dl">
+          <div class="k">Version</div><div>1.1.0</div>
+          <div class="k">ROMs folder</div><div><code>~/RetroPie/roms</code></div>
+          <div class="k">Developer</div><div>Fahim A Saikat</div>
+          <div class="k">Copyright</div><div>© 2026 JaduPc</div>
+          <div class="k">License</div><div>MIT</div>
+        </div>
+      </div>
+      <div class="ft"><button class="btn primary sm" data-close style="--a:#5b6ee1">Close</button></div>
+    </div>
+  </div>
+
+  <!-- Sheet: game details from gamelist.xml -->
+  <div class="sheet-wrap" id="sheetWrap"><aside class="sheet" id="sheet"></aside></div>
+
+  <div class="toasts" id="toasts"></div>
+</div>
+
+<!-- Mockup controls: floating, collapsed by default so the app owns the whole screen -->
+<details class="devpanel">
+<summary>Mockup</summary>
+<div class="controls">
+  <label>Theme <select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+  <label><input type="checkbox" id="optSky" checked> Skyscraper installed</label>
+  <label><input type="checkbox" id="optEs"> EmulationStation running</label>
+  <span>Click systems · hover cards · search (<b>/</b>) · grid/list · delete · Add ROM · About · drag a file onto the window</span>
+</div>
+<div class="notes">
+  <b>Look:</b> neutral charcoal surfaces in three steps (window → sidebar/cards → dialogs), 1px borders, small neutral shadows. No gradients or glows.
+  Box art carries the colour; each system's accent is one flat colour (icon tile, active marker, primary button). Games without art get a muted
+  solid tile with a monogram.<br>
+  <b>Scraping:</b> powered by RetroPie's own Skyscraper (no API keys). Install → auto-scrape that game; <i>Scrape</i> → whole system; cards and the details
+  <code>Sheet</code> read box art, screenshot and description back from <code>gamelist.xml</code>. Covers shown here come from libretro-thumbnails purely as stand-ins.<br>
+  <b>GPUI Kit mapping:</b> <code>Sidebar</code>/<code>SidebarMenuItem</code> (icon tile, count suffix) ·
+  <code>Input</code> + <code>Kbd</code> · <code>ButtonGroup</code> · <code>Button</code> (primary colour from the system accent) · <code>Tag</code> chips · <code>DataTable</code> ·
+  <code>Empty</code> · <code>Alert</code> · <code>Sheet</code> · <code>AlertDialog</code> + <code>Collapsible</code> · <code>Dialog</code> + <code>DescriptionList</code> · <code>Notification</code>.
+</div>
+</details>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-files" viewBox="0 0 24 24"><path d="M20 7h-3a2 2 0 0 1-2-2V2"/><path d="M9 18a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7l4 4v10a2 2 0 0 1-2 2Z"/><path d="M3 7.6v12.8A1.6 1.6 0 0 0 4.6 22h9.8"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-image-down" viewBox="0 0 24 24"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21"/><path d="m14 19 3 3v-5.5"/><path d="m17 22 3-3"/><circle cx="9" cy="9" r="2"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-video-off" viewBox="0 0 24 24"><path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196"/><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></symbol>
+    <symbol id="i-image-off" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M10.41 10.41a2 2 0 1 1-2.83-2.83"/><path d="M13.5 13.5 6 21"/><path d="M18 12l3 3"/><path d="M3.59 3.59A2 2 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.05-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/></symbol>
+    <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M6 12h4"/><path d="M8 10v4"/><path d="M15 13h.01"/><path d="M18 11h.01"/><rect width="20" height="12" x="2" y="6" rx="2"/></symbol>
+    <symbol id="s-arcade" viewBox="0 0 24 24"><path d="M12 5h3.5a5 5 0 0 1 0 10h-5.5l-4.015 4.227a2.3 2.3 0 0 1 -3.923 -2.035l1.634 -8.173a5 5 0 0 1 4.904 -4.019h3.4"/><path d="M14 15l4.07 4.284a2.3 2.3 0 0 0 3.925 -2.023l-1.6 -8.232"/><path d="M8 9v2"/><path d="M7 10h2"/><path d="M14 10h2"/></symbol>
+    <symbol id="s-dreamcast" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M7 12a5 5 0 0 1 5 -5"/><path d="M12 17a5 5 0 0 0 5 -5"/></symbol>
+    <symbol id="s-gba" viewBox="0 0 24 24"><path d="M6 5a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-14"/><path d="M11 4h2"/><path d="M12 17v.01"/></symbol>
+    <symbol id="s-megadrive" viewBox="0 0 24 24"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0 -1 -1.717l-7 -4.008a2.016 2.016 0 0 0 -2 0l-7 4.008c-.619 .355 -1 1.01 -1 1.718v8.018c0 .709 .381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7 -4.008c.619 -.355 1 -1.01 1 -1.718"/><path d="M12 22v-10"/><path d="M12 12l8.73 -5.04"/><path d="M3.27 6.96l8.73 5.04"/></symbol>
+    <symbol id="s-psx" viewBox="0 0 24 24"><path d="M2 8a2 2 0 0 1 2 -2h16a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2l0 -8"/><path d="M6 12h4m-2 -2v4"/><path d="M15 11l0 .01"/><path d="M18 13l0 .01"/></symbol>
+    <symbol id="s-n64" viewBox="0 0 24 24"><path d="M9 12l-3 -3h-2a1 1 0 0 0 -1 1v4a1 1 0 0 0 1 1h2l3 -3"/><path d="M15 12l3 -3h2a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-2l-3 -3"/><path d="M12 15l-3 3v2a1 1 0 0 0 1 1h4a1 1 0 0 0 1 -1v-2l-3 -3"/><path d="M12 9l-3 -3v-2a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v2l-3 3"/></symbol>
+  </defs>
+</svg>
+
+<script>
+// Mirrors src/systems.rs; accents tuned so each one reads on a dark surface.
+const SYSTEMS = [
+  { id: "arcade", name: "Arcade (MAME)", short: "Arcade", a: "#e0663a", ext: [".zip", ".7z"] },
+  { id: "dreamcast", name: "Dreamcast", short: "Dreamcast", a: "#d9475b", ext: [".cdi", ".chd", ".cue", ".gdi", ".zip", ".m3u"] },
+  { id: "gba", name: "Game Boy Advance", short: "GBA", a: "#8f63cf", ext: [".gba", ".zip", ".7z"] },
+  { id: "megadrive", name: "Sega Genesis / MD", short: "Genesis", a: "#3a7bd5", ext: [".smd", ".bin", ".gen", ".md", ".zip", ".7z"] },
+  { id: "psx", name: "PlayStation", short: "PS1", a: "#5b6ee1", ext: [".cue", ".bin", ".img", ".mdf", ".pbp", ".toc", ".cbn", ".m3u", ".ccd", ".chd", ".iso"] },
+  { id: "n64", name: "Nintendo 64", short: "N64", a: "#2c9a63", ext: [".n64", ".z64", ".v64", ".zip"] },
+];
+
+const tracks = (stem, n, extra = []) => [`${stem}.cue`, ...Array.from({ length: n }, (_, i) => `${stem} (Track ${i + 1}).bin`), ...extra];
+const one = (stem, ext, extra = []) => [`${stem}${ext}`, ...extra];
+
+const LIBRARY = {
+  arcade: [],
+  dreamcast: [
+    { name: "Crazy Taxi (USA)", files: ["Crazy Taxi (USA).gdi", "track01.bin", "track02.raw", "track03.bin"] },
+    { name: "Jet Grind Radio (USA)", files: one("Jet Grind Radio (USA)", ".chd") },
+    { name: "Power Stone 2 (USA)", files: one("Power Stone 2 (USA)", ".chd") },
+    { name: "Shenmue (USA) (Disc 1)", files: one("Shenmue (USA) (Disc 1)", ".chd") },
+    { name: "Sonic Adventure 2 (USA)", files: one("Sonic Adventure 2 (USA)", ".cdi") },
+    { name: "Soulcalibur (USA)", files: one("Soulcalibur (USA)", ".chd") },
+  ],
+  gba: ["Advance Wars", "Castlevania - Aria of Sorrow", "Final Fantasy Tactics Advance", "Fire Emblem", "Golden Sun",
+        "Kirby & The Amazing Mirror", "Mario Kart - Super Circuit", "Mario & Luigi - Superstar Saga", "Metroid Fusion",
+        "Metroid - Zero Mission", "Pokemon - Emerald Version", "Pokemon - FireRed Version", "Sonic Advance",
+        "The Legend of Zelda - The Minish Cap", "WarioWare, Inc.", "Yoshi's Island - Super Mario Advance 3"]
+       .map((n, i) => ({ name: `${n} (USA)`, files: one(`${n} (USA)`, ".gba", i % 3 ? [`${n} (USA).srm`] : []) })),
+  megadrive: ["Gunstar Heroes", "Phantasy Star IV", "Sonic The Hedgehog 2", "Streets of Rage 2"]
+       .map(n => ({ name: `${n} (USA)`, files: one(`${n} (USA)`, ".md") })),
+  psx: [
+    { name: "Doom (USA) (Rev 1)", files: tracks("Doom (USA) (Rev 1)", 8, ["Doom (USA) (Rev 1).srm"]) },
+    { name: "FIFA Soccer 2005", files: tracks("FIFA Soccer 2005", 1, ["FIFA Soccer 2005.srm"]) },
+    { name: "Metal Gear Solid (USA) (Disc 1) (Rev 1)", files: one("Metal Gear Solid (USA) (Disc 1) (Rev 1)", ".chd") },
+    { name: "Need for Speed III - Hot Pursuit (USA)", files: tracks("Need for Speed III - Hot Pursuit (USA)", 2) },
+    { name: "Road Rash (USA)", files: tracks("Road Rash (USA)", 2) },
+    { name: "Road Rash - Jailbreak", files: tracks("Road Rash - Jailbreak", 1) },
+    { name: "Tekken 3 (USA)", files: tracks("Tekken 3 (USA)", 3, ["Tekken 3 (USA).srm"]) },
+    { name: "Tony Hawk's Pro Skater 2 (USA)", files: tracks("Tony Hawk's Pro Skater 2 (USA)", 1) },
+  ],
+  n64: [
+    { name: "Super Mario 64 (USA)", files: one("Super Mario 64 (USA)", ".z64") },
+    { name: "The Legend of Zelda - Ocarina of Time (USA)", files: one("The Legend of Zelda - Ocarina of Time (USA)", ".z64", ["The Legend of Zelda - Ocarina of Time (USA).srm"]) },
+  ],
+};
+
+/* What Skyscraper writes into gamelist.xml: [year, developer, publisher, genre, players, rating 0–1, desc?] */
+const META = {
+  "Doom (USA) (Rev 1)": [1995, "id Software", "Williams Entertainment", "Shooter", "1-2", .78, "The demon-infested Mars bases of the PC classic, rebuilt for PlayStation with new lighting, a moodier soundtrack and two-player link-cable deathmatch."],
+  "FIFA Soccer 2005": [2004, "EA Canada", "EA Sports", "Sports", "1-4", .62, "Club and international football with first-touch controls and a career mode that carries a manager across fifteen seasons."],
+  "Metal Gear Solid (USA) (Disc 1) (Rev 1)": [1998, "Konami Computer Entertainment Japan", "Konami", "Action", "1", .94, "Solid Snake infiltrates a nuclear weapons facility on Shadow Moses Island. A landmark of cinematic stealth action."],
+  "Need for Speed III - Hot Pursuit (USA)": [1998, "EA Canada", "Electronic Arts", "Racing", "1-2", .84, "Exotic cars, open roads and police pursuits — race as the speeder or put on the badge and run the spike strips yourself."],
+  "Road Rash (USA)": [1996, "Electronic Arts", "Electronic Arts", "Racing", "1", .74, "Illegal motorcycle races down California highways, where kicking and clubbing rivals off their bikes is part of the strategy."],
+  "Tekken 3 (USA)": [1998, "Namco", "Namco", "Fighting", "1-2", .96, "A new generation of fighters enters the King of Iron Fist Tournament, with sidestep movement, Tekken Force mode and Tekken Ball."],
+  "Tony Hawk's Pro Skater 2 (USA)": [2000, "Neversoft", "Activision", "Sports", "1-2", .93, "Manuals link tricks into endless combos across bigger levels, with a park editor and create-a-skater."],
+  "Crazy Taxi (USA)": [2000, "Hitmaker", "Sega", "Racing", "1", .86],
+  "Jet Grind Radio (USA)": [2000, "Smilebit", "Sega", "Action", "1", .88],
+  "Power Stone 2 (USA)": [2000, "Capcom", "Capcom", "Fighting", "1-4", .82],
+  "Shenmue (USA) (Disc 1)": [2000, "Sega AM2", "Sega", "Adventure", "1", .88],
+  "Sonic Adventure 2 (USA)": [2001, "Sonic Team USA", "Sega", "Platform", "1-2", .84],
+  "Soulcalibur (USA)": [1999, "Namco", "Namco", "Fighting", "1-2", .98],
+  "Super Mario 64 (USA)": [1996, "Nintendo EAD", "Nintendo", "Platform", "1", .96, "Mario leaps into three dimensions, hunting Power Stars through the paintings of Princess Peach's castle."],
+  "The Legend of Zelda - Ocarina of Time (USA)": [1998, "Nintendo EAD", "Nintendo", "Action-Adventure", "1", .99, "Link travels between childhood and adulthood to stop Ganondorf, with Z-targeting combat and an ocarina full of songs that bend time and weather."],
+  "Gunstar Heroes (USA)": [1993, "Treasure", "Sega", "Shooter", "1-2", .9],
+  "Phantasy Star IV (USA)": [1994, "Sega", "Sega", "RPG", "1", .88],
+  "Sonic The Hedgehog 2 (USA)": [1992, "Sonic Team", "Sega", "Platform", "1-2", .9],
+  "Streets of Rage 2 (USA)": [1992, "Sega", "Sega", "Beat 'em up", "1-2", .92],
+  "Metal Slug (World)": [1996, "Nazca", "SNK", "Shooter", "1-2", .88],
+  "Skies of Arcadia (USA) (Disc 1)": [2000, "Overworks", "Sega", "RPG", "1", .9],
+  "Pokemon - Ruby Version (USA)": [2002, "Game Freak", "Nintendo", "RPG", "1-4", .82],
+  "Comix Zone (USA)": [1995, "Sega Technical Institute", "Sega", "Beat 'em up", "1", .78],
+  "Crash Bandicoot (USA)": [1996, "Naughty Dog", "Sony", "Platform", "1", .8],
+  "GoldenEye 007 (USA)": [1997, "Rare", "Nintendo", "Shooter", "1-4", .94],
+};
+[["Advance Wars", 2001, "Intelligent Systems", "Strategy"], ["Castlevania - Aria of Sorrow", 2003, "Konami", "Action"],
+ ["Final Fantasy Tactics Advance", 2003, "Square", "RPG"], ["Fire Emblem", 2003, "Intelligent Systems", "Strategy"],
+ ["Golden Sun", 2001, "Camelot", "RPG"], ["Kirby & The Amazing Mirror", 2004, "Flagship", "Platform"],
+ ["Mario Kart - Super Circuit", 2001, "Intelligent Systems", "Racing"], ["Mario & Luigi - Superstar Saga", 2003, "AlphaDream", "RPG"],
+ ["Metroid Fusion", 2002, "Nintendo R&D1", "Action"], ["Metroid - Zero Mission", 2004, "Nintendo R&D1", "Action"],
+ ["Pokemon - Emerald Version", 2004, "Game Freak", "RPG"], ["Pokemon - FireRed Version", 2004, "Game Freak", "RPG"],
+ ["Sonic Advance", 2001, "Dimps", "Platform"], ["The Legend of Zelda - The Minish Cap", 2004, "Flagship", "Action-Adventure"],
+ ["WarioWare, Inc.", 2003, "Nintendo R&D1", "Puzzle"], ["Yoshi's Island - Super Mario Advance 3", 2002, "Nintendo EAD", "Platform"],
+].forEach(([n, y, d, g], i) => META[`${n} (USA)`] = [y, d, "Nintendo", g, "1", .8 + (i % 4) * .04]);
+
+/* Descriptions for entries the table above doesn't carry one for. */
+const DESC = {
+  "Crazy Taxi (USA)": "Pick up fares and get them across a sun-bleached coastal city before the meter runs out, jumping ramps and cutting through traffic for tips.",
+  "Jet Grind Radio (USA)": "Inline-skating graffiti crews fight rival gangs and the police for control of Tokyo-to's streets, in a cel-shaded style that set a new look for 3D games.",
+  "Power Stone 2 (USA)": "Four-player arena brawler where the stages break apart around you and anything lying around — chairs, cannons, rayguns — becomes a weapon.",
+  "Shenmue (USA) (Disc 1)": "Ryo Hazuki searches 1980s Yokosuka for his father's killer in a slow-burning open-world adventure with a working day-night cycle, jobs and arcade machines.",
+  "Sonic Adventure 2 (USA)": "Hero and Dark stories run side by side as Sonic, Shadow, Knuckles, Rouge, Tails and Eggman race, hunt and shoot through the game's stages.",
+  "Soulcalibur (USA)": "Weapon-based 3D fighter with eight-way movement and a mission mode that unlocks art, costumes and characters.",
+  "Gunstar Heroes (USA)": "Treasure's debut: a run-and-gun where you mix two of four weapon types into new shots, against bosses that fill the screen.",
+  "Phantasy Star IV (USA)": "Chaz and Alys investigate monsters appearing on Motavia, closing out the original Phantasy Star saga with combination techniques and comic-panel cutscenes.",
+  "Sonic The Hedgehog 2 (USA)": "Sonic and Tails race through eleven zones to stop Dr. Robotnik's Death Egg, adding the spin dash and two-player split-screen races.",
+  "Streets of Rage 2 (USA)": "Axel, Blaze, Max and Skate fight through the city to rescue Adam, with special moves, bigger sprites and Yuzo Koshiro's house-music soundtrack.",
+  "Metal Slug (World)": "Hand-drawn run-and-gun where Marco Rossi fights the Rebel Army on foot and in the SV-001 tank, with rescued prisoners handing out weapons.",
+  "Skies of Arcadia (USA) (Disc 1)": "Sky pirate Vyse sails between floating continents, fighting turn-based battles and ship-to-ship duels against the Valuan Armada.",
+  "Pokemon - Ruby Version (USA)": "Explore the Hoenn region, catch Pokémon and stop Team Magma, with double battles, abilities and natures introduced in this generation.",
+  "Comix Zone (USA)": "Artist Sketch Turner is pulled into his own comic book and fights from panel to panel while its villain draws enemies in.",
+  "Crash Bandicoot (USA)": "Crash runs through jungles, ruins and factories on N. Sanity Island to rescue Tawna from Dr. Neo Cortex.",
+  "GoldenEye 007 (USA)": "Bond infiltrates Severnaya and beyond in a first-person shooter with mission objectives that grow with difficulty, plus four-player split-screen.",
+  "Advance Wars (USA)": "Turn-based war on grid maps: build units from factories, use terrain and fog of war, and fire each commander's special power at the right moment.",
+  "Castlevania - Aria of Sorrow (USA)": "Soma Cruz absorbs the souls of the monsters he defeats in Dracula's castle in 2035, giving him hundreds of abilities to mix and match.",
+  "Final Fantasy Tactics Advance (USA)": "Marche and his friends are pulled into the world of Ivalice, where every battle is refereed by Judges who forbid certain actions.",
+  "Fire Emblem (USA)": "Lyn, Eliwood and Hector lead a band of mercenaries in a tactics game where fallen units are gone for good.",
+  "Golden Sun (USA)": "Isaac and friends use Psynergy, both in battle and to solve puzzles in the world, to stop the lighthouses of Alchemy being lit.",
+  "Kirby & The Amazing Mirror (USA)": "Kirby is split into four colors and explores an interconnected mirror world, calling in his copies to help.",
+  "Mario Kart - Super Circuit (USA)": "Twenty new tracks plus the SNES originals, with coins, link-cable multiplayer and a 150cc mode.",
+  "Mario & Luigi - Superstar Saga (USA)": "Mario and Luigi head to the Beanbean Kingdom to recover Princess Peach's voice, in an RPG where each brother has his own button.",
+  "Metroid Fusion (USA)": "Samus, infected by the X parasite, investigates a space research station while running from SA-X, a copy of herself.",
+  "Metroid - Zero Mission (USA)": "A remake of the original Metroid with new areas, a map and an extra stealth chapter after the credits.",
+  "Pokemon - Emerald Version (USA)": "A third take on Hoenn, with both Team Magma and Team Aqua, the Battle Frontier and animated sprites.",
+  "Pokemon - FireRed Version (USA)": "A remake of Pokémon Red for the GBA, adding the Sevii Islands and wireless trading.",
+  "Sonic Advance (USA)": "Sonic, Tails, Knuckles and Amy run through classic-style 2D zones in Sonic's first game on a Nintendo system.",
+  "The Legend of Zelda - The Minish Cap (USA)": "Link shrinks to the size of the Minish with the help of his talking cap, Ezlo, to stop the sorcerer Vaati.",
+  "WarioWare, Inc. (USA)": "Over two hundred microgames that each last about five seconds, getting faster the longer you survive.",
+  "Yoshi's Island - Super Mario Advance 3 (USA)": "Yoshi carries Baby Mario across the island to rescue his brother, with six new levels added in this port.",
+};
+
+/* Games with nothing in gamelist.xml yet; "Road Rash - Jailbreak" also has no ScreenScraper match. */
+const UNSCRAPED = new Set(["Road Rash - Jailbreak", "FIFA Soccer 2005"]);
+const NO_MATCH = new Set(["Road Rash - Jailbreak"]);
+const THUMB_REPO = { arcade: "MAME", dreamcast: "Sega_-_Dreamcast", gba: "Nintendo_-_Game_Boy_Advance",
+  megadrive: "Sega_-_Mega_Drive_-_Genesis", psx: "Sony_-_PlayStation", n64: "Nintendo_-_Nintendo_64" };
+/* Mockup only: libretro-thumbnails stands in for the files Skyscraper downloads into downloaded_media/<system>/covers. */
+const thumb = (sysId, name, kind = "Named_Boxarts") =>
+  `https://raw.githubusercontent.com/libretro-thumbnails/${THUMB_REPO[sysId]}/master/${kind}/${encodeURIComponent(name.replace(/[&*/:`<>?\\|"]/g, "_"))}.png`;
+const metaOf = g => {
+  if (UNSCRAPED.has(g.name) || !META[g.name]) return null;
+  const [year, developer, publisher, genre, players, rating, desc] = META[g.name];
+  return { year, developer, publisher, genre, players, rating, desc: desc || DESC[g.name] };
+};
+const stars = r => `<span class="stars">${[0, 1, 2, 3, 4].map(i => `<svg class="${r * 5 >= i + .5 ? "" : "off"}"><use href="#i-star"/></svg>`).join("")}</span>`;
+
+const state = { sys: "psx", view: "grid", q: "", pending: null, scrape: null, sky: true, esRunning: false };
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ic = (id, cls = "i") => `<svg class="${cls}"><use href="#${id}"/></svg>`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const sys = () => SYSTEMS.find(s => s.id === state.sys);
+
+/* "Doom (USA) (Rev 1)" -> { title: "Doom", tags: ["USA", "Rev 1"] } — No-Intro/Redump style */
+function parseName(name) {
+  const tags = [...name.matchAll(/\(([^)]+)\)/g)].map(m => m[1]);
+  return { title: name.replace(/\s*\([^)]*\)/g, "").trim(), tags };
+}
+function monogram(title) {
+  const words = title.replace(/^(The|A)\s+/i, "").split(/[\s\-:&,]+/).filter(w => /^[A-Za-z0-9]/.test(w));
+  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+}
+
+function renderNav() {
+  $("#nav").innerHTML = SYSTEMS.map(s => `
+    <button class="nav-item ${s.id === state.sys ? "active" : ""}" data-sys="${s.id}" style="--c:${s.a}">
+      <span class="tile">${ic("s-" + s.id, "i sm")}</span>
+      <span class="label">${s.name}</span>
+      <span class="count">${LIBRARY[s.id].length}</span>
+    </button>`).join("");
+}
+
+function renderHero() {
+  const s = sys(), games = LIBRARY[s.id];
+  const files = games.reduce((n, g) => n + g.files.length, 0);
+  const win = $("#win");
+  win.style.setProperty("--a", s.a);
+  $("#hero").innerHTML = `
+    <div class="hero-icon">${ic("s-" + s.id, "i xl")}</div>
+    <div>
+      <h1>${s.name}</h1>
+      <div class="sub">Drop files anywhere in the window, or pick them from disk. Zips are extracted automatically.</div>
+      <div class="stats">
+        <span class="stat"><b>${games.length}</b> ${games.length === 1 ? "game" : "games"}</span>
+        <span class="stat"><b>${files}</b> ${files === 1 ? "file" : "files"}</span>
+        <span class="stat">${ic("i-folder", "i xs")}<code>roms/${s.id}</code></span>
+      </div>
+      ${state.scrape && state.scrape.sys === s.id ? `<div class="scrape-progress">
+        <div class="lbl"><span>Scraping with Skyscraper · ${state.scrape.done}/${state.scrape.total}</span><b>${esc(parseName(state.scrape.current).title)}</b></div>
+        <div class="bar"><span style="width:${(state.scrape.done / state.scrape.total) * 100}%"></span></div>
+      </div>` : ""}
+    </div>
+    <div class="cta">
+      <button class="btn glass" id="openSysFolder" data-tip="Open in file manager">${ic("i-folder", "i sm")}</button>
+      <button class="btn glass" id="scrapeBtn" ${!state.sky || state.scrape || !games.length ? "disabled style='opacity:.5;cursor:not-allowed'" : ""}
+        data-tip="${state.sky ? "Fetch box art & metadata" : "Needs Skyscraper"}">
+        ${state.scrape ? ic("i-loader", "i sm spin") : ic("i-image-down", "i sm")}${state.scrape ? "Scraping…" : "Scrape"}</button>
+      <button class="btn primary" data-add>${ic("i-plus", "i sm")}Add ROM</button>
+    </div>`;
+  renderAlert();
+}
+
+function renderAlert() {
+  const s = sys();
+  const missing = LIBRARY[s.id].filter(g => !metaOf(g)).length;
+  let html = "";
+  if (!state.sky) {
+    html = `<div class="alert"><div class="ai">${ic("i-image-off", "i sm")}</div>
+      <div><b>Box art needs Skyscraper.</b> <span>Install RetroPie's scraper from <code>RetroPie-Setup → Manage packages → opt → skyscraper</code> — no API keys needed.</span></div></div>`;
+  } else if (state.esRunning) {
+    html = `<div class="alert"><div class="ai">${ic("i-alert", "i sm")}</div>
+      <div><b>EmulationStation is running.</b> <span>It overwrites <code>gamelist.xml</code> when it quits, so new artwork is cached and applied once you exit it.</span></div></div>`;
+  } else if (missing && !state.scrape) {
+    html = `<div class="alert accent">
+      <div class="ai">${ic("i-image-down", "i sm")}</div>
+      <div><b>${plural(missing, "game")} without artwork.</b> <span>Scrape them so they show up with box art and descriptions here and in EmulationStation.</span></div>
+      <button class="btn primary sm" id="scrapeMissing">Scrape ${missing}</button></div>`;
+  }
+  $("#alertSlot").innerHTML = html;
+}
+
+function chipsFor(g) {
+  const { tags } = parseName(g.name);
+  const fmt = g.files[0].slice(g.files[0].lastIndexOf(".") + 1);
+  return tags.map(t => `<span class="chip">${esc(t)}</span>`).join("")
+    + `<span class="chip fmt">${esc(fmt)}</span>`
+    + `<span class="chip files">${ic("i-files", "i xs")}${g.files.length}</span>`;
+}
+
+function renderLib() {
+  const s = sys(), all = LIBRARY[s.id];
+  const games = all.filter(g => g.name.toLowerCase().includes(state.q.toLowerCase()));
+  $("#libCount").textContent = all.length ? (state.q ? `${games.length} of ${all.length}` : all.length) : "";
+  const lib = $("#lib");
+
+  if (!all.length) {
+    lib.innerHTML = `<div class="empty">
+      <div class="orb">${ic("s-" + s.id, "i xl")}</div>
+      <h3>Your ${s.name} shelf is empty</h3>
+      <p>Add a ROM and it lands in <code>~/RetroPie/roms/${s.id}</code>, ready for EmulationStation. Multi-file games collapse into one entry.</p>
+      <button class="btn primary" data-add>${ic("i-plus", "i sm")}Add your first ROM</button>
+      <div class="exts" style="margin-top:12px">${s.ext.map(e => `<span>${e}</span>`).join("")}</div>
+    </div>`;
+    return;
+  }
+  if (!games.length) {
+    lib.innerHTML = `<div class="empty"><div class="orb">${ic("i-search", "i xl")}</div><h3>No matches</h3>
+      <p>Nothing on the ${s.name} shelf matches “${esc(state.q)}”.</p></div>`;
+    return;
+  }
+
+  if (state.view === "grid") {
+    lib.innerHTML = `<div class="grid">
+      ${state.q ? "" : `<div class="add-card" data-add>
+        <div class="plus">${ic("i-plus", "i lg")}</div>
+        <b>Add ROM</b><small>Click or drop files</small>
+        <div class="exts">${s.ext.map(e => `<span>${e}</span>`).join("")}</div>
+      </div>`}
+      ${games.map(g => {
+        const { title } = parseName(g.name);
+        const m = metaOf(g);
+        const busy = state.scrape && state.scrape.current === g.name;
+        return `<div class="card ${m ? "" : "unscraped"}" tabindex="0" data-open="${esc(g.name)}">
+          <div class="art ${m ? "has-cover" : ""}">
+            <svg class="i glyph"><use href="#s-${s.id}"/></svg>
+            <span class="mono">${esc(monogram(title))}</span>
+            ${m ? `<img class="cover-img" src="${thumb(s.id, g.name)}" alt="" onerror="this.remove()">` : ""}
+            <span class="sys">${ic("s-" + s.id, "i xs")}${s.short}</span>
+            <button class="del" data-del="${esc(g.name)}" data-tip="Delete">${ic("i-trash", "i sm")}</button>
+          </div>
+          <div class="info">
+            <div class="title" title="${esc(g.name)}">${esc(title)}</div>
+            <div class="chips">${m
+              ? `<span class="chip">${m.year}</span><span class="chip">${esc(m.genre)}</span>${stars(m.rating)}<span class="chip files">${ic("i-files", "i xs")}${g.files.length}</span>`
+              : busy ? `<span class="chip">${ic("i-loader", "i xs spin")}Scraping…</span>`
+              : `${chipsFor(g).replace(/<span class="chip files">/, `<span class="chip warn">${NO_MATCH.has(g.name) ? "No match" : "No art"}</span><span class="chip files">`)}`}</div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  } else {
+    lib.innerHTML = `<div class="table">
+      <div class="tr head"><span></span><span>Title</span><span>Tags</span><span>Files</span><span></span></div>
+      ${games.map(g => {
+        const { title, tags } = parseName(g.name);
+        const m = metaOf(g);
+        return `<div class="tr" data-open="${esc(g.name)}" style="cursor:pointer">
+          <span class="thumb" style="position:relative; overflow:hidden">${esc(monogram(title))}${m ? `<img src="${thumb(s.id, g.name)}" alt="" onerror="this.remove()" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover">` : ""}</span>
+          <span class="name">${esc(title)}${m ? `<div style="font-size:12px; font-weight:400; color:var(--fg-3)">${m.year} · ${esc(m.developer)}</div>` : ""}</span>
+          <span class="chips">${m ? `<span class="chip">${esc(m.genre)}</span>${stars(m.rating)}` : `${tags.map(t => `<span class="chip">${esc(t)}</span>`).join("")}<span class="chip warn">No art</span>`}</span>
+          <span class="num">${g.files.length}</span>
+          <button class="icon-btn" data-del="${esc(g.name)}" data-tip="Delete">${ic("i-trash", "i sm")}</button>
+        </div>`;
+      }).join("")}
+    </div>`;
+  }
+}
+
+function render() { renderNav(); renderHero(); renderLib(); }
+
+/* Simulates scraper::scrape — gather per ROM, then one gamelist generation. */
+function startScrape(names) {
+  if (!state.sky || state.scrape || !names.length) return;
+  const sysId = state.sys;
+  state.scrape = { sys: sysId, total: names.length, done: 0, current: names[0] };
+  render();
+  let found = 0;
+  const step = () => {
+    const name = names[state.scrape.done];
+    state.scrape.current = name;
+    render();
+    setTimeout(() => {
+      if (!NO_MATCH.has(name) && !state.esRunning) { UNSCRAPED.delete(name); found++; }
+      state.scrape.done++;
+      if (state.scrape.done < state.scrape.total) return step();
+      state.scrape = null;
+      render();
+      if (state.esRunning) toast("Artwork cached", "Quit EmulationStation, then scrape again to write gamelist.xml", true);
+      else toast(`Scraped ${SYSTEMS.find(s => s.id === sysId).name}`, `Found box art & metadata for ${found} of ${plural(names.length, "game")}`, found < names.length);
+    }, 650);
+  };
+  step();
+}
+
+/* Plausible on-disk sizes for the mockup (bytes), stable per file name. */
+function fakeSize(f) {
+  let h = 0; for (const c of f) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const r = (h % 1000) / 1000, ext = f.slice(f.lastIndexOf(".") + 1).toLowerCase(), MB = 1048576;
+  if (["cue", "gdi", "m3u"].includes(ext)) return 300 + Math.round(r * 900);
+  if (ext === "srm") return 8192 * (1 + Math.round(r * 15));
+  if (ext === "bin") return /Track 1\)|^[^(]*\.bin$/.test(f) ? Math.round((300 + r * 350) * MB) : Math.round((2 + r * 40) * MB);
+  if (["chd", "cdi"].includes(ext)) return Math.round((350 + r * 500) * MB);
+  if (ext === "gba") return [4, 8, 16, 32][h % 4] * MB;
+  if (["z64", "n64", "v64"].includes(ext)) return [8, 16, 32, 64][h % 4] * MB;
+  if (["md", "smd", "gen"].includes(ext)) return [1, 2, 3, 4][h % 4] * MB;
+  return Math.round((1 + r * 30) * MB);
+}
+const fmtSize = b => b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : b >= 1048576 ? `${(b / 1048576).toFixed(b >= 104857600 ? 0 : 1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`;
+
+function openSheet(name) {
+  const s = sys(), g = LIBRARY[s.id].find(x => x.name === name);
+  if (!g) return;
+  const { title, tags } = parseName(g.name), m = metaOf(g);
+  const sizes = g.files.map(fakeSize), total = sizes.reduce((a, b) => a + b, 0);
+  const media = m ? [
+    { label: "Box art", file: "covers/", img: thumb(s.id, g.name) },
+    { label: "Screenshot", file: "screenshots/", img: thumb(s.id, g.name, "Named_Snaps") },
+    { label: "Wheel", file: "wheels/", missing: "Not on ScreenScraper" },
+    { label: "Video", file: "videos/", missing: "Off in skyscraper.cfg", icon: "i-video-off" },
+  ] : [];
+  const have = media.filter(x => !x.missing).length;
+  $("#sheet").innerHTML = `
+    <div class="shot">${m ? `<img class="bg" src="${thumb(s.id, g.name, "Named_Snaps")}" alt="" onerror="this.remove()">` : ""}
+      <button class="close" data-close-sheet>${ic("i-x", "i sm")}</button></div>
+    <div class="head">
+      <div class="box">${esc(monogram(title))}${m ? `<img src="${thumb(s.id, g.name)}" alt="" onerror="this.remove()">` : ""}</div>
+      <div style="padding-bottom:4px; min-width:0">
+        <h2>${esc(title)}</h2>
+        <div class="byline">${m ? `${esc(m.developer)} · ${m.year}` : "Not scraped yet"}</div>
+        <div class="chips" style="margin-top:8px">${tags.map(t => `<span class="chip">${esc(t)}</span>`).join("")}</div>
+      </div>
+    </div>
+    <div class="body">
+      ${m ? `
+        ${m.desc ? `<p class="desc">${esc(m.desc)}</p>` : `<p class="desc none">No description in gamelist.xml.</p>`}
+        <section>
+          <h4>Details <span>ScreenScraper</span></h4>
+          <dl class="kv">
+            <dt>Released</dt><dd>${m.year}</dd>
+            <dt>Developer</dt><dd>${esc(m.developer)}</dd>
+            <dt>Publisher</dt><dd>${esc(m.publisher)}</dd>
+            <dt>Genre</dt><dd>${esc(m.genre)}</dd>
+            <dt>Players</dt><dd>${esc(m.players.replace("-", "–"))}</dd>
+            <dt>Rating</dt><dd>${stars(m.rating)}<span style="color:var(--fg-3)">${(m.rating * 5).toFixed(1)} / 5</span></dd>
+          </dl>
+        </section>
+        <section>
+          <h4>Media <span>${have} of ${media.length} saved</span></h4>
+          <div class="media">${media.map(x => `<figure>
+            <div class="tile ${x.missing ? "missing" : ""}">${x.missing ? ic(x.icon || "i-image-off", "i sm") : `${ic("i-image-off", "i sm")}<img src="${x.img}" alt="" onerror="this.remove()">`}</div>
+            <figcaption>${x.label}<small>${x.missing || x.file}</small></figcaption></figure>`).join("")}</div>
+        </section>`
+      : `<div class="alert accent">
+          <div class="ai">${ic("i-image-off", "i sm")}</div>
+          <div><b>${NO_MATCH.has(g.name) ? "No match on ScreenScraper." : "No artwork yet."}</b> <span>${NO_MATCH.has(g.name) ? "Renaming the file to its No-Intro/Redump name usually fixes this." : "Scrape to fetch box art, screenshots and a description."}</span></div></div>`}
+      <section>
+        <h4>Files <span>${plural(g.files.length, "file")} · ${fmtSize(total)}</span></h4>
+        <div class="ftable">
+          ${g.files.map((f, k) => `<div class="row">${ic("i-file", "i xs")}<span class="fn" title="${esc(f)}">${esc(f)}</span><span class="sz">${fmtSize(sizes[k])}</span></div>`).join("")}
+          <div class="row dir">${ic("i-folder", "i xs")}<code>~/RetroPie/roms/${s.id}/</code></div>
+        </div>
+      </section>
+    </div>
+    <div class="foot">
+      <button class="btn ghost-btn sm" id="openSysFolder">${ic("i-folder", "i sm")}Show in folder</button>
+      <span class="grow"></span>
+      <button class="btn secondary sm" data-rescrape="${esc(g.name)}" ${state.sky ? "" : "disabled"}>${ic(m ? "i-refresh" : "i-image-down", "i sm")}${m ? "Re-scrape" : "Scrape"}</button>
+      <button class="btn danger-outline sm" data-del="${esc(g.name)}">${ic("i-trash", "i sm")}Delete</button>
+    </div>`;
+  $("#sheetWrap").classList.add("open");
+}
+
+function toast(title, desc, err = false) {
+  const el = document.createElement("div");
+  el.className = "toast" + (err ? " err" : "");
+  el.innerHTML = `<span class="ti">${ic(err ? "i-alert" : "i-check", "i sm")}</span>
+    <div><b>${esc(title)}</b><span>${esc(desc)}</span></div>
+    <button class="icon-btn x">${ic("i-x", "i sm")}</button>`;
+  el.querySelector(".x").onclick = () => el.remove();
+  $("#toasts").prepend(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+function openDelete(name) {
+  const g = LIBRARY[state.sys].find(g => g.name === name);
+  state.pending = g;
+  $("#delTitle").textContent = `Delete ${parseName(g.name).title}?`;
+  $("#delDesc").textContent = `${plural(g.files.length, "file")} will be permanently removed from ~/RetroPie/roms/${state.sys}. This can't be undone.`;
+  $("#fileList").innerHTML = g.files.map(f => `<div>${ic("i-file", "i xs")}${esc(f)}</div>`).join("");
+  $("#fileList").hidden = true;
+  $("#disclose").classList.remove("open");
+  $("#disclose").firstChild.textContent = `Show ${plural(g.files.length, "file")} `;
+  $("#delDlg").classList.add("open");
+}
+
+function fakeInstall() {
+  const s = sys();
+  const name = { arcade: "Metal Slug (World)", dreamcast: "Skies of Arcadia (USA) (Disc 1)", gba: "Pokemon - Ruby Version (USA)",
+    megadrive: "Comix Zone (USA)", psx: "Crash Bandicoot (USA)", n64: "GoldenEye 007 (USA)" }[s.id];
+  if (LIBRARY[s.id].some(g => g.name === name)) return toast("Already installed", name, true);
+  const files = s.id === "psx" ? tracks(name, 1) : one(name, s.ext[0]);
+  LIBRARY[s.id].push({ name, files });
+  LIBRARY[s.id].sort((a, b) => a.name.localeCompare(b.name));
+  UNSCRAPED.add(name);
+  render();
+  toast(`Installed ${parseName(name).title}`, `${plural(files.length, "file")} copied to roms/${s.id}${state.sky ? " — fetching artwork…" : ""}`);
+  startScrape([name]);
+}
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-sys],[data-view],[data-del],[data-add],[data-close],[data-close-sheet],[data-rescrape],[data-open],#openAbout,#openFolder,#openSysFolder,#disclose,#confirmDel,#themeBtn,#scrapeBtn,#scrapeMissing");
+  if (!t) {
+    if (e.target.classList.contains("overlay")) e.target.classList.remove("open");
+    if (e.target.id === "sheetWrap") e.target.classList.remove("open");
+    return;
+  }
+  if (t.dataset.closeSheet !== undefined) $("#sheetWrap").classList.remove("open");
+  else if (t.dataset.rescrape) { $("#sheetWrap").classList.remove("open"); UNSCRAPED.add(t.dataset.rescrape); startScrape([t.dataset.rescrape]); }
+  else if (t.dataset.open) openSheet(t.dataset.open);
+  else if (t.id === "scrapeBtn") startScrape(LIBRARY[state.sys].map(g => g.name));
+  else if (t.id === "scrapeMissing") startScrape(LIBRARY[state.sys].filter(g => !metaOf(g)).map(g => g.name));
+  else if (t.dataset.sys) { state.sys = t.dataset.sys; state.q = ""; $("#search").value = ""; $("#scroll").scrollTop = 0; render(); }
+  else if (t.dataset.view) {
+    state.view = t.dataset.view;
+    document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("on", b === t));
+    renderLib();
+  }
+  else if (t.dataset.del) openDelete(t.dataset.del);
+  else if (t.dataset.add !== undefined) fakeInstall();
+  else if (t.dataset.close !== undefined) t.closest(".overlay").classList.remove("open");
+  else if (t.id === "openAbout") $("#aboutDlg").classList.add("open");
+  else if (t.id === "openFolder" || t.id === "openSysFolder") toast("Opened in file manager", t.id === "openFolder" ? "~/RetroPie/roms" : `~/RetroPie/roms/${state.sys}`);
+  else if (t.id === "disclose") {
+    const open = t.classList.toggle("open");
+    $("#fileList").hidden = !open;
+    t.firstChild.textContent = open ? "Hide files " : `Show ${plural(state.pending.files.length, "file")} `;
+  }
+  else if (t.id === "confirmDel") {
+    const g = state.pending;
+    const hadArt = !!metaOf(g);
+    LIBRARY[state.sys] = LIBRARY[state.sys].filter(x => x !== g);
+    $("#delDlg").classList.remove("open");
+    $("#sheetWrap").classList.remove("open");
+    render();
+    toast(`Removed ${parseName(g.name).title}`, `${plural(g.files.length, "file")} deleted${hadArt ? " · box art & screenshot cleaned up" : ""}`);
+  }
+  else if (t.id === "themeBtn") setTheme($("#win").dataset.theme === "light" ? "dark" : "light");
+});
+
+$("#search").addEventListener("input", e => { state.q = e.target.value; renderLib(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("#search").focus(); }
+  if (e.key === "Escape") document.querySelectorAll(".overlay.open, .sheet-wrap.open").forEach(o => o.classList.remove("open"));
+});
+
+// Window-wide drop target: highlight the add tile while dragging files over the window.
+const win = $("#win");
+win.addEventListener("dragover", e => { e.preventDefault(); document.querySelector(".add-card")?.classList.add("drag"); });
+win.addEventListener("dragleave", e => { if (e.target === win) document.querySelector(".add-card")?.classList.remove("drag"); });
+win.addEventListener("drop", e => { e.preventDefault(); document.querySelector(".add-card")?.classList.remove("drag"); fakeInstall(); });
+
+function setTheme(t) {
+  win.dataset.theme = t;
+  $("#theme").value = t;
+  $("#themeBtn").innerHTML = ic(t === "light" ? "i-sun" : "i-moon", "i sm");
+}
+$("#theme").addEventListener("change", e => setTheme(e.target.value));
+$("#optSky").addEventListener("change", e => { state.sky = e.target.checked; render(); });
+$("#optEs").addEventListener("change", e => { state.esRunning = e.target.checked; render(); });
+
+render();
+
+// Deep links for screenshots: ?sys=gba&theme=light&view=list&dialog=delete|about
+const p = new URLSearchParams(location.search);
+if (p.get("sys")) { state.sys = p.get("sys"); render(); }
+if (p.get("view")) document.querySelector(`[data-view="${p.get("view")}"]`).click();
+if (p.get("theme")) setTheme(p.get("theme"));
+if (p.get("dialog") === "delete" && LIBRARY[state.sys].length) openDelete(LIBRARY[state.sys][0].name);
+if (p.get("dialog") === "about") $("#aboutDlg").classList.add("open");
+if (p.get("sky") === "0") { $("#optSky").checked = false; state.sky = false; render(); }
+if (p.get("es") === "1") { $("#optEs").checked = true; state.esRunning = true; render(); }
+if (p.get("sheet")) openSheet(LIBRARY[state.sys][+p.get("sheet")].name);
+if (p.get("scrape")) { startScrape(LIBRARY[state.sys].map(g => g.name)); }
+</script>
+</body>
+</html>

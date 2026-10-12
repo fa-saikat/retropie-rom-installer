@@ -1,38 +1,45 @@
-//! Flat color palette lifted directly from the approved draft mockup.
-//! Kept as plain u32 (0xRRGGBB) so both GPUI's `rgb()` and any future
-//! theming can consume them without conversion.
+//! App-level theming on top of GPUI Kit's Default Light/Dark themes.
+//!
+//! The kit theme supplies every neutral (background, borders, muted text…);
+//! the only thing we add is the selected system's accent, which becomes the
+//! theme's primary colour so primary buttons, focus rings and progress bars
+//! pick it up. It's applied flat — no gradients or glows.
 
-pub const WINDOW_BG: u32 = 0x0f1419;
-// RRGGBBAA scrim laid over the background image so the texture reads as
-// deliberate and text contrast holds everywhere, image or not.
-pub const BG_SCRIM: u32 = 0x0f1419d9;
-pub const SIDEBAR_TEXT: u32 = 0x8a8fa3;
-pub const SIDEBAR_ITEM_SELECTED_BG: u32 = 0x1c2033;
+use gpui_kit::component::{ActiveTheme, Colorize, Theme, ThemeMode};
+use gpui_kit::{rgb, white, App, Hsla, Window};
 
-pub const CARD_BG: u32 = 0x171c2b;
-pub const CARD_BORDER: u32 = 0x262c42;
-pub const CARD_ICON_BG: u32 = 0x26215c;
+pub fn accent(color: u32) -> Hsla {
+    rgb(color).into()
+}
 
-pub const TEXT_PRIMARY: u32 = 0xfffdfa;
-pub const TEXT_SECONDARY: u32 = 0x8a8fa3;
-pub const TEXT_MUTED: u32 = 0x5f6478;
+/// Make `color` the theme's primary colour.
+pub fn apply_accent(color: u32, cx: &mut App) {
+    let c = accent(color);
+    Theme::update(cx, |t| {
+        t.primary = c;
+        t.primary_hover = c.opacity(0.9);
+        t.primary_active = c.darken(0.1);
+        t.primary_foreground = white();
+        t.button_primary = c;
+        t.button_primary_hover = c.opacity(0.9);
+        t.button_primary_active = c.darken(0.1);
+        t.button_primary_foreground = white();
+        t.ring = c;
+        t.sidebar_primary = c;
+        t.progress_bar = c;
+    });
+}
 
-pub const ACCENT: u32 = 0x7f77dd;
-pub const ACCENT_LIGHT: u32 = 0xafa9ec;
-pub const ACCENT_DARK: u32 = 0x635dac;
+/// Flip light/dark. Changing mode reloads the kit's colours, so the accent
+/// is re-applied afterwards.
+pub fn toggle_mode(accent_color: u32, window: &mut Window, cx: &mut App) {
+    let mode = if cx.theme().is_dark() { ThemeMode::Light } else { ThemeMode::Dark };
+    Theme::change(mode, Some(window), cx);
+    apply_accent(accent_color, cx);
+}
 
-pub const DROPZONE_BORDER: u32 = 0x3a4060;
-
-pub const DANGER: u32 = 0xe0554f;
-pub const DANGER_BG: u32 = 0x2a1518;
-pub const DANGER_DARK: u32 = 0xaf423e;
-pub const DANGER_LIGHT: u32 = 0xe97a75;
-
-// Named type ramp (logical px). Every text element in the UI uses one of
-// these — no ad-hoc sizes — so the hierarchy stays consistent and a future
-// "too small / too big" pass is a five-line change here.
-pub const TEXT_TITLE: f32 = 20.;
-pub const TEXT_HEADING: f32 = 16.;
-pub const TEXT_BODY: f32 = 14.;
-pub const TEXT_CAPTION: f32 = 13.;
-pub const TEXT_MICRO: f32 = 12.;
+/// Background for raised surfaces (game cards, the list view): one step up
+/// from the window background in either mode.
+pub fn card_bg(cx: &App) -> Hsla {
+    cx.theme().secondary.opacity(0.45)
+}

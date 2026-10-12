@@ -5,11 +5,10 @@ edition = "2021"
 description = "A GPUI desktop app for installing/uninstalling RetroPie ROMs"
 
 [dependencies]
-# GPUI is pre-1.0 and still evolving quickly. The crates.io releases lag
-# behind Zed's main branch, so if you hit compile errors, pin this to a git
-# rev instead:
-#   gpui = { git = "https://github.com/zed-industries/zed", rev = "<commit>" }
-gpui = "*"
+# GPUI Kit (https://gpui-kit.com): the styled component library plus the exact
+# GPUI snapshot it's built against, re-exported as `gpui_kit::*`. It pins GPUI
+# itself (`gpui-pre`, exact version), so bumping this one line moves both.
+gpui-kit = "0.7.1"
 
 # Native "Open file" dialog (GTK/Qt-free, works on X11/Wayland via a portal
 # or GTK depending on what's installed). Runs the picker off the UI thread.
@@ -26,6 +25,9 @@ dirs = "5"
 
 # Ergonomic error handling across the install/uninstall pipeline.
 anyhow = "1"
+
+# Read-only parse of EmulationStation's gamelist.xml (scraped art + metadata).
+roxmltree = "0.20"
 
 # [[bin]]
 # name = "retropie-rom-manager"
@@ -55,11 +57,7 @@ assets = [
     # Uncomment once a real app icon exists (see note below) —
     ["assets/retropie-rom-manager.svg", "usr/share/icons/hicolor/256x256/apps/retropie-rom-manager.svg", "644"],
 
-    # Uncomment if you want to ship default background/system icons baked
-    # into the package. Not required: assets.rs already falls back
-    # gracefully (solid color / accent swatch) when these aren't present,
-    # so only bundle them if you've settled on defaults you want everyone
-    # to get out of the box.
-    ["assets/background.png", "usr/share/retropie-rom-manager/assets/", "644"],
+    # Per-system icons. Optional: assets.rs falls back to a generic gamepad
+    # icon when these aren't present.
     ["assets/icons/*", "usr/share/retropie-rom-manager/assets/icons/", "644"],
 ]

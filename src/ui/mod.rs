@@ -1,2 +1,6 @@
+mod details;
+mod library;
 mod root;
-pub use root::RootView;
+mod sidebar;
+
+pub use root::{FocusSearch, RootView, KEY_CONTEXT};
