@@ -966,7 +966,7 @@ pub(super) fn open_about(view: &mut RootView, window: &mut Window, cx: &mut Cont
                             .item("Version", env!("CARGO_PKG_VERSION"), 1)
                             .item("ROMs folder", "~/RetroPie/roms", 1)
                             .item("Artwork", scraper_line.clone(), 1)
-                            .item("Developer", "Fahim A Saikat", 1)
+                            .item("Developers", "Fahim A Saikat, Ukay K Marma", 1)
                             .item("Copyright", "© 2026 JaduPc", 1)
                             .item("License", "MIT", 1),
                     ),
