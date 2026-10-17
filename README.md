@@ -9,7 +9,7 @@ A native desktop app for managing the ROMs on a RetroPie machine. Drop in a down
 
 ![Game Boy Advance library with scraped box art](screenshots/library-gba.png)
 
-**[Watch the 2-minute demo](screenshots/demo.mp4)**: install a zip, scrape it, play it, catch a GBA game dropped on Genesis, switch to dark mode.
+**[Watch the 2-minute demo](https://github.com/user-attachments/assets/617f4d56-7044-47df-a01e-dd780c2e6af7))**: install a zip, scrape it, play it, catch a GBA game dropped on Genesis, switch to dark mode.
 
 ## Why
 
