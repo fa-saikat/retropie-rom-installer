@@ -372,7 +372,7 @@ fn zip_contains_rom(src: &Path, rom_exts: &[&str]) -> bool {
     }
 }
 
-/// Extraction chain, same order as the Python prototype:
+/// Extraction chain, tried in order:
 ///   1. `zip` crate (fast, zero external deps, handles standard zips)
 ///   2. system `unzip` binary (self-extracting stubs, Zip64 quirks)
 ///   3. system `7z` binary (split/multi-part archives, everything else)

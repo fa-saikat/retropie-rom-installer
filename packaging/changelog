@@ -1,54 +1,33 @@
 retropie-rom-manager (2.0.0-1) unstable; urgency=low
 
-  * Add emulator management, wrong-system suggestions and Play
-  * Detect ROMs installed to the wrong system
-  * release: bump version
-  * Add Shelf design system and HTML mockup
-  * Port UI to GPUI Kit, add Skyscraper scraping and in-app install
+  * Support all 37 RetroPie systems, with an "Add emulator" picker and
+    removal of systems you no longer use.
+  * Identify ROMs by their contents and catch games installed to the
+    wrong system, with one-click move (adding the right system if needed).
+  * Play games straight from the app with RetroPie's default emulator.
+  * Fetch box art and metadata with Skyscraper, and install Skyscraper
+    from inside the app when it's missing.
+  * New interface built on GPUI Kit: box-art grid and list views, search,
+    game details panel, drag and drop, light and dark themes.
 
  -- FA Saikat <fahimabrar.saikat@gmail.com>  Mon, 12 Oct 2026 13:52:49 +0600
 
 retropie-rom-manager (1.1.0-1) unstable; urgency=low
 
-  * feat: Make retropie-rom-manager 1.0.0 a reality
-  * Rewrite README as profile showcase (#19)
-  * Curate README screenshot set (#18)
-  * Redesign app icon around the sidebar gamepad mark
-  * Attribute copyright to JaduPc with developer credit (#15)
-  * Make About a proper sidebar row (#14)
-  * Treat background with contrast scrim (#10)
-  * Design empty state and quiet status line (#9)
-  * Restyle confirm and About dialogs (#6)
-  * Show system icon on game cards instead of initial letter (#8)
-  * Refresh game cards with actionable Delete button (#8)
-  * Rework Add-ROM as centered full-width dropzone card (#7)
-  * Make Add-ROM a real primary button (#7)
-  * Fix sidebar alignment: truncate names, widen panel, N64 icon (#5)
-  * Polish sidebar: uniform icons, clean names, clear selection (#5)
-  * Add named type ramp and apply across UI (#4)
-  * feat: Make retropie-rom-manager 1.0.0 a reality
-  * feat: Make scripts executable for packaging
-  * feat: Make assets discovery more explicit
-  * feat: add deb packaging
-  * feat: add about button
-  * set min window size & load assets
-  * initial commit
+  * Visual refresh: type scale, sidebar, game cards, dialogs, empty state.
+  * Delete button on game cards.
+  * New app icon and About dialog.
 
  -- FA Saikat <fahimabrar.saikat@gmail.com>  Thu, 08 Oct 2026 04:36:29 +0600
 
 retropie-rom-manager (1.0.0-1) unstable; urgency=low
 
-  * feat: Make retropie-rom-manager 1.0.0 a reality
-  * feat: Make scripts executable for packaging
-  * feat: Make assets discovery more explicit
-  * feat: add deb packaging
-  * feat: add about button
-  * set min window size & load assets
-  * initial commit
+  * Debian package.
+  * About dialog, minimum window size, on-disk system icons.
 
  -- FA Saikat <fahimabrar.saikat@gmail.com>  Thu, 17 Sep 2026 03:53:02 +0600
 
-rom-manager (0.1.0-1) unstable; urgency=low
+retropie-rom-manager (0.1.0-1) unstable; urgency=low
 
   * Initial release.
 

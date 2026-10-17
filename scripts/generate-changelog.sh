@@ -1,35 +1,9 @@
 #!/usr/bin/env sh
-# generate-changelog.sh
+# Prepend a packaging/changelog entry for the version in Cargo.toml, built
+# from commit subjects since the last tag. Bump Cargo.toml first; the script
+# refuses to write a duplicate entry. It doesn't build, commit or tag.
 #
-# Prepends a new entry to packaging/changelog, sourced from git commits,
-# using the version currently set in Cargo.toml. This keeps Cargo.toml
-# and packaging/changelog in sync by construction: the changelog entry
-# is always generated FROM the version you just bumped, never typed by
-# hand as a separate step.
-#
-# Usage:
-#   ./scripts/generate-changelog.sh
-#
-# What it does:
-#   1. Reads `version` from [package] in Cargo.toml.
-#   2. Refuses to proceed if that version is already the top entry in
-#      packaging/changelog (the "forgot to bump" case — bump Cargo.toml
-#      first, then run this).
-#   3. Collects commit subjects since the last git tag (or since the
-#      last changelog entry's tag, or full history if there's no tag
-#      yet) as the bullet list for the new entry.
-#   4. Prepends a properly-formatted Debian changelog entry to
-#      packaging/changelog (creating the file if it doesn't exist yet).
-#
-# Override maintainer identity with env vars if git config isn't set up
-# the way you want it reflected in the changelog:
-#   MAINTAINER_NAME="Fahim A Saikat" MAINTAINER_EMAIL="fahimabrar.saikat@gmail.com" \
-#     ./scripts/generate-changelog.sh
-#
-# This script only edits packaging/changelog. It does not touch
-# Cargo.toml, does not build anything, and does not create a git tag —
-# run build-deb.sh separately afterward, and tag the release yourself
-# (e.g. `git tag v$(VERSION)`) if that's part of your workflow.
+# MAINTAINER_NAME / MAINTAINER_EMAIL override the git identity.
 
 set -e
 
