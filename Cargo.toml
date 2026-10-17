@@ -18,6 +18,9 @@ dirs = "5"
 anyhow = "1"
 # Read-only parse of EmulationStation's gamelist.xml.
 roxmltree = "0.20"
+# GPUI logs its GPU adapter choice; RUST_LOG=info shows it.
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
+log = "0.4"
 
 [package.metadata.deb]
 maintainer = "Fahim A Saikat <fahimabrar.saikat@gmail.com>"
