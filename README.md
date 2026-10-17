@@ -44,17 +44,28 @@ Managing ROMs on RetroPie usually means copying files into the right folder by h
 
 ![Dreamcast library, where each multi-track game is one entry](screenshots/library-dreamcast.png)
 
+## Requirements
+
+- A Linux desktop (X11 or Wayland) on x86_64 or arm64, with glibc 2.35 or newer. Debian 12, Ubuntu 22.04, Raspberry Pi OS Bookworm (64-bit) and current Armbian releases all qualify.
+- A GPU driver with Vulkan or OpenGL ES 3. Any desktop PC has one, and so do the Raspberry Pi 4 and 5 and most Mali-based Armbian boards with a recent Mesa.
+- RetroPie installed on the same machine through [RetroPie-Setup](https://retropie.org.uk/docs/Debian/), with ROMs in `~/RetroPie/roms`.
+
+Installing, browsing and deleting ROMs works without RetroPie. Play needs RetroPie's emulators. Artwork needs Skyscraper, which the app can install for you. For stubborn archives, install `unzip` and `p7zip-full` and the app will fall back to them.
+
+The RetroPie SD-card images aren't supported: they boot straight into EmulationStation with no desktop, and most are 32-bit.
+
 ## Install
 
-Download the `.deb` from the [latest release](https://github.com/fa-saikat/retropie-rom-installer/releases/latest):
+Download the `.deb` for your architecture from the [latest release](https://github.com/fa-saikat/retropie-rom-installer/releases/latest) and install it:
 
 ```sh
-sudo apt install ./retropie-rom-manager_*_amd64.deb
+sudo apt install ./retropie-rom-manager_*_amd64.deb   # PC
+sudo apt install ./retropie-rom-manager_*_arm64.deb   # Raspberry Pi 4/5, Armbian
 ```
 
 Then launch **ROM Manager** from your app menu, or run `retropie-rom-manager`.
 
-The app manages `~/RetroPie/roms`, so it's meant for a desktop Linux machine with [RetroPie installed](https://retropie.org.uk/docs/Debian/). Installing and deleting ROMs works without RetroPie. Play needs RetroPie's emulators, and artwork needs Skyscraper. For stubborn archives, install `unzip` and `p7zip-full` and the app will fall back to them.
+The arm64 build is new. If it doesn't start on your board, please [open an issue](https://github.com/fa-saikat/retropie-rom-installer/issues) with the board, OS and the terminal output.
 
 ## How it works
 
@@ -89,7 +100,7 @@ Accepted extensions for each one come from RetroPie's `platforms.cfg` and its do
 
 ## Known limitations
 
-- Only an x86_64 `.deb` is published. It should build on a Raspberry Pi from source, but that hasn't been tested yet.
+- There's no 32-bit ARM (`armhf`) build.
 - The ROM folder is fixed at `~/RetroPie/roms`.
 - Play always uses the system's default emulator. Per-game choices made in runcommand's menu are ignored, and emulators whose command needs runcommand's video-mode tokens (`%XRES%` and similar) won't start from the app.
 - `.7z` archives aren't inspected for the wrong-system check.
@@ -104,7 +115,7 @@ cargo build --release
 ./target/release/retropie-rom-manager
 ```
 
-You'll need a recent stable Rust toolchain, a working Vulkan driver, and the development headers GPUI links against. On Debian or Ubuntu:
+You'll need a recent stable Rust toolchain, a Vulkan or OpenGL ES 3 driver, and the development headers GPUI links against. On Debian or Ubuntu:
 
 ```sh
 sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
