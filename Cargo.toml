@@ -22,6 +22,10 @@ roxmltree = "0.20"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
 log = "0.4"
 
+[patch.crates-io]
+# Use the texture instance path on GL drivers without vertex storage buffers.
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
+
 [package.metadata.deb]
 maintainer = "Fahim A Saikat <fahimabrar.saikat@gmail.com>"
 copyright = "2026, JaduPc <Fahim A Saikat>"
