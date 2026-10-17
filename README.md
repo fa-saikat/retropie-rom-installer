@@ -81,7 +81,7 @@ cargo build --release
 
 The UI is built with [GPUI Kit](https://gpui-kit.com), which pins the exact [GPUI](https://www.gpui.rs) snapshot it's built against, so `gpui-kit` is the only UI dependency to bump. The filesystem, grouping and scraper logic have no GPUI dependency and are covered by `cargo test`.
 
-Debug builds take a few environment variables to open in a given state, for screenshots: `ROM_MANAGER_SYSTEM=psx`, `ROM_MANAGER_VIEW=list`, `ROM_MANAGER_THEME=light`, `ROM_MANAGER_OPEN=<card index>` (details panel), `ROM_MANAGER_DIALOG=delete|about|install-skyscraper` and `ROM_MANAGER_RUN=install-skyscraper|scrape`; `ROM_MANAGER_SETUP_NO_ELEVATE=1` runs the Skyscraper installer without sudo/pkexec (for testing with a stand-in script).
+Debug builds take a few environment variables to open in a given state, for screenshots: `ROM_MANAGER_SYSTEM=psx`, `ROM_MANAGER_VIEW=list`, `ROM_MANAGER_THEME=dark`, `ROM_MANAGER_OPEN=<card index>` (details panel), `ROM_MANAGER_DIALOG=delete|about|install-skyscraper` and `ROM_MANAGER_RUN=install-skyscraper|scrape`; `ROM_MANAGER_SETUP_NO_ELEVATE=1` runs the Skyscraper installer without sudo/pkexec (for testing with a stand-in script).
 
 Linux system deps for the GUI: a working OpenGL/Vulkan stack plus `libxkbcommon`, `libasound2`, `libssl`, `fontconfig`. The native file picker uses a desktop portal on Wayland or GTK3 on X11. Debian packaging: `./scripts/build-deb.sh` (changelog via `./scripts/generate-changelog.sh` after bumping `Cargo.toml`).
 
