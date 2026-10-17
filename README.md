@@ -104,7 +104,14 @@ cargo build --release
 ./target/release/retropie-rom-manager
 ```
 
-You'll need a recent stable Rust toolchain and the usual GUI libraries: a working OpenGL or Vulkan driver, `libxkbcommon`, `libasound2`, `libssl` and `fontconfig`. The file picker uses an XDG desktop portal on Wayland and GTK on X11.
+You'll need a recent stable Rust toolchain, a working Vulkan driver, and the development headers GPUI links against. On Debian or Ubuntu:
+
+```sh
+sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+  libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev libvulkan-dev libzstd-dev
+```
+
+The file picker goes through the XDG desktop portal (`xdg-desktop-portal` plus a backend such as `xdg-desktop-portal-gtk`), on both X11 and Wayland.
 
 The UI is built with [GPUI Kit](https://gpui-kit.com) on top of [GPUI](https://www.gpui.rs), the framework behind the Zed editor. Detection, grouping, scraping and launching have no UI dependency and are covered by `cargo test`.
 
