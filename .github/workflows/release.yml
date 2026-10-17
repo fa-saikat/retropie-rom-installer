@@ -1,9 +1,12 @@
 name: Release
 
-# Runs on every push to main, but only releases when Cargo.toml carries a
-# version that hasn't been tagged yet. Other merges to main are a no-op.
+# Pull requests build both .debs as downloadable artifacts. Pushes to main
+# also publish a release, but only when Cargo.toml carries a version that
+# hasn't been tagged yet; any other merge to main is a no-op.
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -11,16 +14,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: release
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  release:
-    # 22.04's older glibc keeps the .deb installable on Debian 12 and up.
+  version:
     runs-on: ubuntu-22.04
-    env:
-      # rustc can overflow its stack compiling gpui-component.
-      RUST_MIN_STACK: "16777216"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +33,9 @@ jobs:
         run: |
           version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          elif git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "v$version is already released, nothing to do."
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
@@ -47,8 +51,27 @@ jobs:
             exit 1
           fi
 
+  build:
+    needs: version
+    # Pull requests and manual runs always build; pushes only when releasing.
+    if: github.event_name != 'push' || needs.version.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04's older glibc keeps the .deb installable on Debian 12 and up.
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      # rustc can overflow its stack compiling gpui-component.
+      RUST_MIN_STACK: "16777216"
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Install build dependencies
-        if: steps.version.outputs.release == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -57,43 +80,54 @@ jobs:
             libvulkan-dev libzstd-dev
 
       - uses: dtolnay/rust-toolchain@stable
-        if: steps.version.outputs.release == 'true'
 
       - uses: Swatinem/rust-cache@v2
-        if: steps.version.outputs.release == 'true'
 
       - uses: taiki-e/install-action@v2
-        if: steps.version.outputs.release == 'true'
         with:
           tool: cargo-deb
 
       - name: Test
-        if: steps.version.outputs.release == 'true'
         run: cargo test --locked
 
       - name: Build .deb
-        if: steps.version.outputs.release == 'true'
         run: |
           chmod 755 packaging/DEBIAN/postinst packaging/DEBIAN/postrm
           cargo deb
-          cd target/debian
-          sha256sum *.deb > SHA256SUMS
 
-      - name: Write release notes
-        if: steps.version.outputs.release == 'true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: target/debian/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          path: dist
+          merge-multiple: true
+
+      - name: Write checksums and release notes
         run: |
+          (cd dist && sha256sum *.deb > SHA256SUMS && cat SHA256SUMS)
           # The top changelog entry's bullets, as a Markdown list.
           awk 'NR > 1 && /^ -- / { exit } NR > 2' packaging/changelog \
             | sed -e 's/^  \* /- /' -e 's/^    /  /' > notes.md
           cat notes.md
 
       - name: Create tag and release
-        if: steps.version.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=${{ steps.version.outputs.version }}
-          gh release create "v$version" target/debian/*.deb target/debian/SHA256SUMS \
+          version=${{ needs.version.outputs.version }}
+          gh release create "v$version" dist/*.deb dist/SHA256SUMS \
             --target "$GITHUB_SHA" \
             --title "v$version" \
             --notes-file notes.md \
