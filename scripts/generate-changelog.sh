@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 # Prepend a packaging/changelog entry for the version in Cargo.toml, built
 # from commit subjects since the last tag. Bump Cargo.toml first; the script
-# refuses to write a duplicate entry. It doesn't build, commit or tag.
+# refuses to write a duplicate entry. Tags are fetched first, since CI
+# creates them. It doesn't build, commit or tag.
 #
 # MAINTAINER_NAME / MAINTAINER_EMAIL override the git identity.
 
@@ -37,6 +38,14 @@ if [ -f "$CHANGELOG" ]; then
 fi
 
 # --- figure out the commit range for this entry ---------------------------
+# Releases are tagged by CI, so the local clone may not have the latest tag
+# yet. Without it the entry would repeat commits from earlier releases.
+if ! git fetch --tags --quiet; then
+    echo "error: couldn't fetch tags from the remote; the changelog would" >&2
+    echo "       include commits that were already released." >&2
+    exit 1
+fi
+
 # Prefer commits since the last reachable git tag. If no tag exists yet
 # (first release), fall back to the full history so the first changelog
 # entry isn't empty.

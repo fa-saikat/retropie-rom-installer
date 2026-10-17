@@ -1,0 +1,100 @@
+name: Release
+
+# Runs on every push to main, but only releases when Cargo.toml carries a
+# version that hasn't been tagged yet. Other merges to main are a no-op.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # 22.04's older glibc keeps the .deb installable on Debian 12 and up.
+    runs-on: ubuntu-22.04
+    env:
+      # rustc can overflow its stack compiling gpui-component.
+      RUST_MIN_STACK: "16777216"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released, nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check changelog matches
+        if: steps.version.outputs.release == 'true'
+        run: |
+          top=$(sed -n '1s/^retropie-rom-manager (\(.*\)-[0-9]*).*/\1/p' packaging/changelog)
+          if [ "$top" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::packaging/changelog starts at $top, but Cargo.toml says ${{ steps.version.outputs.version }}. Run ./scripts/generate-changelog.sh."
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        if: steps.version.outputs.release == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
+            libvulkan-dev libzstd-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.release == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.version.outputs.release == 'true'
+
+      - uses: taiki-e/install-action@v2
+        if: steps.version.outputs.release == 'true'
+        with:
+          tool: cargo-deb
+
+      - name: Test
+        if: steps.version.outputs.release == 'true'
+        run: cargo test --locked
+
+      - name: Build .deb
+        if: steps.version.outputs.release == 'true'
+        run: |
+          chmod 755 packaging/DEBIAN/postinst packaging/DEBIAN/postrm
+          cargo deb
+          cd target/debian
+          sha256sum *.deb > SHA256SUMS
+
+      - name: Write release notes
+        if: steps.version.outputs.release == 'true'
+        run: |
+          # The top changelog entry's bullets, as a Markdown list.
+          awk 'NR > 1 && /^ -- / { exit } NR > 2' packaging/changelog \
+            | sed -e 's/^  \* /- /' -e 's/^    /  /' > notes.md
+          cat notes.md
+
+      - name: Create tag and release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${{ steps.version.outputs.version }}
+          gh release create "v$version" target/debian/*.deb target/debian/SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "v$version" \
+            --notes-file notes.md \
+            --latest
