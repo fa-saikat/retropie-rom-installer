@@ -17,7 +17,7 @@ fn main() {
         .with_assets(assets::AppAssets)
         .run(|cx| {
             gpui_kit::init(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
+            Theme::change(ThemeMode::Light, None, cx);
             // We keep the native title bar, so sheets can use the full height.
             Theme::update(cx, |t| t.sheet.margin_top = px(0.));
             cx.bind_keys([KeyBinding::new("/", ui::FocusSearch, Some(ui::KEY_CONTEXT))]);

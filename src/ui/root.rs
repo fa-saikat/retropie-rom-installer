@@ -149,7 +149,7 @@ impl RootView {
 
     /// Debug builds only: put the window in a given state at launch so
     /// screenshots don't need clicking around.
-    /// `ROM_MANAGER_VIEW=list`, `ROM_MANAGER_THEME=light`,
+    /// `ROM_MANAGER_VIEW=list`, `ROM_MANAGER_THEME=dark`,
     /// `ROM_MANAGER_OPEN=<card index>` (details sheet),
     /// `ROM_MANAGER_DIALOG=delete|about|install-skyscraper|add-system|remove-system|move`,
     /// `ROM_MANAGER_RUN=install-skyscraper|scrape` (start it right away),
@@ -160,7 +160,7 @@ impl RootView {
         if var("ROM_MANAGER_VIEW").as_deref() == Some("list") {
             self.view_mode = ViewMode::List;
         }
-        if var("ROM_MANAGER_THEME").as_deref() == Some("light") {
+        if var("ROM_MANAGER_THEME").as_deref() == Some("dark") {
             self.toggle_theme(window, cx);
         }
         let pick = var("ROM_MANAGER_OPEN").and_then(|i| i.parse::<usize>().ok());
@@ -637,10 +637,6 @@ impl RootView {
         })
         .detach();
     }
-
-    // -----------------------------------------------------------------------
-    // Uninstall
-    // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
     // Moving games where they belong
