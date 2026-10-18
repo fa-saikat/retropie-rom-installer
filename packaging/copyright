@@ -9,3 +9,8 @@ License: MIT
 Files: assets/icons/*.svg assets/retropie-rom-manager.svg
 Copyright: 2020-2026 Tabler Icons (https://tabler.io), MIT-licensed (https://github.com/tabler/tabler-icons/blob/main/LICENSE); stroke color normalized for this app's sidebar.
 License: MIT
+
+Files: vendor/gpui-pre-wgpu/*
+Copyright: Zed Industries, Inc.
+License: Apache-2.0
+Comment: Patched copy of the gpui-pre-wgpu crate (https://github.com/zed-industries/zed).
