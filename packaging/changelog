@@ -1,3 +1,13 @@
+retropie-rom-manager (2.1.0-1) unstable; urgency=low
+
+  * arm64 .deb for Raspberry Pi 4/5 (64-bit Raspberry Pi OS) and Armbian.
+  * Fix a blank window on GPUs whose OpenGL ES driver lacks vertex storage
+    buffers, such as the Mali-G31 on Panfrost.
+  * Light theme is now the default.
+  * Run with RUST_LOG=info to see which GPU and renderer the app picked.
+
+ -- FA Saikat <fahimabrar.saikat@gmail.com>  Sun, 18 Oct 2026 06:40:03 +0600
+
 retropie-rom-manager (2.0.0-1) unstable; urgency=low
 
   * Support all 37 RetroPie systems, with an "Add emulator" picker and
