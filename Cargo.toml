@@ -18,6 +18,15 @@ dirs = "5"
 anyhow = "1"
 # Read-only parse of EmulationStation's gamelist.xml.
 roxmltree = "0.20"
+# GPUI logs its GPU adapter choice; RUST_LOG=info shows it.
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
+log = "0.4"
+
+[patch.crates-io]
+# gpui-pre-wgpu 0.3.8 with a fix for GL drivers without vertex storage
+# buffers (blank window on Mali-G31). Drop once this is fixed upstream:
+# https://github.com/zed-industries/zed/issues/65765
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
 
 [package.metadata.deb]
 maintainer = "Fahim A Saikat <fahimabrar.saikat@gmail.com>"

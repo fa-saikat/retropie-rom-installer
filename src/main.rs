@@ -13,6 +13,9 @@ use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::{px, size, AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions};
 
 fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,wgpu_hal=off")).init();
+    log::info!("retropie-rom-manager {}", env!("CARGO_PKG_VERSION"));
+
     gpui_kit::application()
         .with_assets(assets::AppAssets)
         .run(|cx| {
